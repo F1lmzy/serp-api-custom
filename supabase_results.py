@@ -1,29 +1,32 @@
-"""Validate, normalize, and atomically upload native scraper snapshots to Supabase.
+"""Response storage for native captures and shared custom/SerpAPI records.
 
-A snapshot is ``{"run_id", "label", "source_file", "captured_at", "results"}`` where
-``results`` is a list of ``{"query_id", "result"}`` entries holding native
-``parse_search_html`` payloads. ``normalize_snapshot`` maps that to one row per
-storage table. ``upload_snapshot`` runs a single parameterized PostgreSQL
-statement through the Management API, so a run is all-or-nothing and a repeated
-upload fails on the primary key instead of overwriting earlier runs.
+Both input paths use the same validation and two-table JSONB projection.
+Native captures retain their run UUID and query order; comparison records
+are grouped by provider and repeat round. Uploads insert one complete response
+per query in one parameterized statement, without overwriting or retrying.
 """
 
 from __future__ import annotations
 
-import copy
-import datetime
+import datetime as dt
 import hashlib
 import json
+import math
 import os
+from pathlib import Path
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
+
+from response_sql import TABLE_COLUMNS, UPLOAD_SQL as COMPARISON_UPLOAD_SQL, RUN_UPLOAD_SQL as UPLOAD_SQL
+from search_export import MEDIA_KEYS, DROP_SECTIONS, _all_reference_indexes, normalize_response
+from serpapi_client import sanitize
 
 _MANAGEMENT_HOST = "https://api.supabase.com"
 _PROJECT_REF = re.compile(r"[a-z0-9]{20}\Z")
 _RUN_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
-_BLOCK_TYPES = ("heading", "paragraph", "list")
 _URL_QUERY = re.compile(r"(https?://[^\s?#]+|(?<![\w.])\/[\w.~%/-]+)\?[^\s]*")
 _SECRET_PATTERNS = (
     re.compile(r"sb_secret_[A-Za-z0-9_-]+"),
@@ -31,70 +34,11 @@ _SECRET_PATTERNS = (
     re.compile(r"GOOGLE_ABUSE[A-Za-z0-9_%:=.-]*"),
 )
 _COUNT_KEYS = ("queries", "ai_overviews", "ai_references", "organic_results")
+STATUSES = {'present', 'absent', 'unavailable', 'empty', 'unresolved', 'invalid', 'error'}
+BLOCK_KEYS = {'type', 'snippet', 'list', 'items', 'table', 'detailed', 'reference_indexes', 'snippet_links', 'text', 'link', 'colspan', 'rowspan', 'ordered', 'start', 'is_header'}
+IGNORED = MEDIA_KEYS | DROP_SECTIONS | {'formatted', 'snippet_highlighted_words'}
+SUPPORT_KEYS = {'inline', 'expanded', 'title', 'link', 'snippet', 'top', 'bottom', 'extensions', 'detected_extensions', 'attributes'}
 
-UPLOAD_SQL = """
-WITH run_input AS (
-    SELECT * FROM jsonb_to_recordset($1::jsonb -> 'scrape_runs')
-        AS t(run_id uuid, label text, source_file text, captured_at timestamptz, metadata jsonb)
-),
-inserted_run AS (
-    INSERT INTO public.scrape_runs (run_id, label, source_file, captured_at, metadata)
-    SELECT run_id, label, source_file, captured_at, metadata FROM run_input
-    RETURNING run_id
-),
-query_input AS (
-    SELECT * FROM jsonb_to_recordset($1::jsonb -> 'queries')
-        AS t(query_id text, ordinal integer, query text, hl text, gl text,
-             status text, error_code text, error_message text)
-),
-inserted_queries AS (
-    INSERT INTO public.queries
-        (run_id, query_id, ordinal, query, hl, gl, status, error_code, error_message)
-    SELECT r.run_id, q.query_id, q.ordinal, q.query, q.hl, q.gl,
-           q.status, q.error_code, q.error_message
-    FROM query_input q CROSS JOIN inserted_run r
-    RETURNING run_id, query_id
-),
-overview_input AS (
-    SELECT * FROM jsonb_to_recordset($1::jsonb -> 'ai_overviews')
-        AS t(query_id text, paragraph text, text_blocks jsonb)
-),
-inserted_overviews AS (
-    INSERT INTO public.ai_overviews (run_id, query_id, paragraph, text_blocks)
-    SELECT q.run_id, o.query_id, o.paragraph, o.text_blocks
-    FROM overview_input o
-    JOIN inserted_queries q ON q.query_id = o.query_id
-    RETURNING run_id, query_id
-),
-reference_input AS (
-    SELECT * FROM jsonb_to_recordset($1::jsonb -> 'ai_references')
-        AS t(query_id text, ordinal integer, title text, source text, link text)
-),
-inserted_references AS (
-    INSERT INTO public.ai_references (run_id, query_id, ordinal, title, source, link)
-    SELECT o.run_id, r.query_id, r.ordinal, r.title, r.source, r.link
-    FROM reference_input r
-    JOIN inserted_overviews o ON o.query_id = r.query_id
-    RETURNING 1 AS inserted
-),
-organic_input AS (
-    SELECT * FROM jsonb_to_recordset($1::jsonb -> 'organic_results')
-        AS t(query_id text, ordinal integer, title text, snippet text, link text)
-),
-inserted_organic AS (
-    INSERT INTO public.organic_results (run_id, query_id, ordinal, title, snippet, link)
-    SELECT q.run_id, g.query_id, g.ordinal, g.title, g.snippet, g.link
-    FROM organic_input g
-    JOIN inserted_queries q ON q.query_id = g.query_id
-    RETURNING 1 AS inserted
-)
-SELECT
-    (SELECT run_id FROM inserted_run) AS run_id,
-    (SELECT count(*) FROM inserted_queries) AS queries,
-    (SELECT count(*) FROM inserted_overviews) AS ai_overviews,
-    (SELECT count(*) FROM inserted_references) AS ai_references,
-    (SELECT count(*) FROM inserted_organic) AS organic_results
-""".strip()
 
 
 class SnapshotError(ValueError):
@@ -155,179 +99,6 @@ def _http_url(value, where):
     return url
 
 
-def _integer(value, where):
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise SnapshotError(f"{where} must be an integer")
-    return value
-
-
-def _validate_indexes(indexes, reference_count, where):
-    if indexes is None:
-        return
-    if not isinstance(indexes, list):
-        raise SnapshotError(f"{where} reference_indexes must be a list")
-    for index in indexes:
-        index = _integer(index, f"{where} reference index")
-        if index < 0 or index >= reference_count:
-            raise SnapshotError(f"{where} citation index {index} is out of range")
-
-
-def _validate_blocks(blocks, reference_count):
-    if not isinstance(blocks, list) or not blocks:
-        raise SnapshotError("ai_overview text_blocks must be a non-empty list")
-    out = []
-    for block in blocks:
-        if not isinstance(block, dict):
-            raise SnapshotError("each AIO text block must be an object")
-        kind = block.get("type")
-        if kind not in _BLOCK_TYPES:
-            raise SnapshotError(f"unsupported AIO block type {kind!r}")
-        block = copy.deepcopy(block)
-        if kind == "list":
-            items = block.get("list")
-            if not isinstance(items, list) or not items:
-                raise SnapshotError("AIO list block must have at least one item")
-            for item in items:
-                if not isinstance(item, dict):
-                    raise SnapshotError("AIO list items must be objects")
-                _required_text(item.get("snippet"), "AIO list item snippet")
-                _validate_indexes(item.get("reference_indexes"), reference_count, "AIO list item")
-        else:
-            _required_text(block.get("snippet"), "AIO block snippet")
-            _validate_indexes(block.get("reference_indexes"), reference_count, "AIO block")
-        out.append(block)
-    return out
-
-
-def _validate_references(query_id, references):
-    if not isinstance(references, list):
-        raise SnapshotError("ai_overview references must be a list")
-    rows = []
-    for position, reference in enumerate(references):
-        if not isinstance(reference, dict):
-            raise SnapshotError("each AIO reference must be an object")
-        index = reference.get("index")
-        if not isinstance(index, int) or isinstance(index, bool) or index != position:
-            raise SnapshotError("AIO reference indexes must be consecutive from zero")
-        rows.append({
-            "query_id": query_id,
-            "ordinal": position + 1,
-            "title": _required_text(reference.get("title", ""), "reference title", allow_empty=True),
-            "source": _required_text(reference.get("source", ""), "reference source", allow_empty=True),
-            "link": _http_url(reference.get("link"), "reference link"),
-        })
-    return rows
-
-
-def _validate_organic(query_id, organic_results):
-    if not isinstance(organic_results, list):
-        raise SnapshotError("organic_results must be a list")
-    rows = []
-    for position, item in enumerate(organic_results, start=1):
-        if not isinstance(item, dict):
-            raise SnapshotError("each organic result must be an object")
-        if _integer(item.get("position"), "organic position") != position:
-            raise SnapshotError("organic positions must be consecutive from one")
-        rows.append({
-            "query_id": query_id,
-            "ordinal": position,
-            "title": _required_text(item.get("title", ""), "organic title", allow_empty=True),
-            "snippet": _required_text(item.get("snippet", ""), "organic snippet", allow_empty=True),
-            "link": _http_url(item.get("link"), "organic link"),
-        })
-    return rows
-
-
-def _normalize_result(ordinal, query_id, result):
-    if not isinstance(result, dict):
-        raise SnapshotError(f"result {ordinal} payload must be an object")
-    params = result.get("search_parameters")
-    if not isinstance(params, dict):
-        raise SnapshotError(f"result {ordinal} has no search_parameters")
-    query = _required_text(params.get("q"), f"result {ordinal} query")
-    hl = _required_text(params.get("hl", "en"), "hl", allow_empty=True) or "en"
-    gl = _required_text(params.get("gl", "us"), "gl", allow_empty=True) or "us"
-
-    error = result.get("error")
-    if error is not None:
-        if not isinstance(error, dict):
-            raise SnapshotError(f"result {ordinal} error must be an object")
-        return ({
-            "query_id": query_id, "ordinal": ordinal, "query": query, "hl": hl, "gl": gl,
-            "status": "error",
-            "error_code": _required_text(error.get("code"), "error code"),
-            "error_message": sanitize_error_message(error.get("message", "")),
-        }, None, [], [])
-
-    overview_row = None
-    reference_rows = []
-    overview = result.get("ai_overview")
-    if overview is not None:
-        if not isinstance(overview, dict):
-            raise SnapshotError(f"result {ordinal} ai_overview must be an object")
-        reference_rows = _validate_references(query_id, overview.get("references", []))
-        blocks = _validate_blocks(overview.get("text_blocks", []), len(reference_rows))
-        paragraph = " ".join(block["snippet"] for block in blocks if block["type"] == "paragraph")
-        overview_row = {"query_id": query_id, "paragraph": paragraph, "text_blocks": blocks}
-
-    query_row = {"query_id": query_id, "ordinal": ordinal, "query": query, "hl": hl, "gl": gl,
-                 "status": "ok", "error_code": None, "error_message": None}
-    return (query_row, overview_row, reference_rows,
-            _validate_organic(query_id, result.get("organic_results", [])))
-
-
-def normalize_snapshot(snapshot):
-    """Return validated per-table rows for a native scraper snapshot."""
-    if not isinstance(snapshot, dict):
-        raise SnapshotError("snapshot must be an object")
-    run_id = _required_text(snapshot.get("run_id"), "run_id")
-    if not _RUN_ID.fullmatch(run_id):
-        raise SnapshotError("run_id must be a lowercase UUID")
-    label = _required_text(snapshot.get("label", ""), "label", allow_empty=True)
-    source_file = os.path.basename(_required_text(snapshot.get("source_file", ""), "source_file", allow_empty=True))
-    captured_at = _required_text(snapshot.get("captured_at"), "captured_at")
-    try:
-        datetime.datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
-    except ValueError:
-        raise SnapshotError("captured_at must be an ISO 8601 timestamp") from None
-
-    results = snapshot.get("results")
-    if not isinstance(results, list) or not results:
-        raise SnapshotError("snapshot must contain at least one result")
-    planned = snapshot.get("planned_query_count", len(results))
-    if isinstance(planned, bool) or not isinstance(planned, int) or planned != len(results):
-        raise SnapshotError("snapshot is incomplete: result count differs from planned_query_count")
-
-    queries, overviews, references, organic = [], [], [], []
-    seen_ids = set()
-    for ordinal, entry in enumerate(results, start=1):
-        if not isinstance(entry, dict):
-            raise SnapshotError(f"result {ordinal} entry must be an object")
-        query_id = _required_text(entry.get("query_id"), f"result {ordinal} query_id")
-        if query_id in seen_ids:
-            raise SnapshotError(f"duplicate query_id {query_id!r}")
-        seen_ids.add(query_id)
-        query_row, overview_row, reference_rows, organic_rows = _normalize_result(
-            ordinal, query_id, entry.get("result"))
-        queries.append(query_row)
-        if overview_row is not None:
-            overviews.append(overview_row)
-        references.extend(reference_rows)
-        organic.extend(organic_rows)
-
-    tables = {"queries": queries, "ai_overviews": overviews,
-              "ai_references": references, "organic_results": organic}
-    metadata = {key: len(value) for key, value in tables.items()}
-    metadata["fingerprint"] = hashlib.sha256(_dump(tables).encode("utf-8")).hexdigest()
-    normalized = {
-        "scrape_runs": [{"run_id": run_id, "label": label, "source_file": source_file,
-                         "captured_at": captured_at, "metadata": metadata}],
-        **tables,
-    }
-    _dump(normalized)  # reject non-finite values anywhere in the payload
-    return normalized
-
-
 def _coerce_count(value):
     if isinstance(value, bool):
         raise UploadError("Supabase Management API returned a non-numeric count")
@@ -350,6 +121,383 @@ def _validate_response(rows, expected_run_id, metadata):
     return {"run_id": expected_run_id, **{key: metadata[key] for key in _COUNT_KEYS}}
 
 
+def secrets():
+    names = ('SERPAPI_API_KEY', 'TWOCAPTCHA_API_KEY', 'DATAIMPULSE_PROXY_USER', 'DATAIMPULSE_PROXY_PASSWORD',
+             'DATAIMPULSE_PROXY_URL', 'SUPABASE_SECRET_KEY', 'SUPABASE_ACCESS_TOKEN')
+    return tuple(os.environ[k] for k in names if os.environ.get(k))
+
+
+def _text(value, name, optional=False):
+    if optional and value is None:
+        return None
+    if not isinstance(value, str) or (not optional and not value.strip()):
+        raise ValueError(f'{name} must be text')
+    return value
+
+
+def _integer(value, name, minimum=1):
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ValueError(f'{name} must be an integer >= {minimum}')
+    return value
+
+
+def _timestamp(value):
+    if value is None:
+        return None
+    value = _text(value, 'capture time').replace(' UTC', '+00:00').replace('Z', '+00:00')
+    stamp = dt.datetime.fromisoformat(value)
+    if stamp.tzinfo is None:
+        raise ValueError('capture time must include its timezone')
+    return stamp.astimezone(dt.timezone.utc).isoformat()
+
+
+def _project(node, warnings, support=False, free_keys=False):
+    if isinstance(node, list):
+        return [_project(v, warnings, support, free_keys) for v in node]
+    if not isinstance(node, dict):
+        return node
+    out = {}
+    for key, value in node.items():
+        if not isinstance(key, str):
+            raise ValueError('content field names must be text')
+        if key in IGNORED or key.endswith('_serpapi_link'):
+            continue
+        if not support and key not in BLOCK_KEYS:
+            warnings.append(f'unknown_aio_content_field:{key}')
+        if support and not free_keys and key not in SUPPORT_KEYS:
+            continue
+        if key in ('colspan', 'rowspan') and (isinstance(value, bool) or not str(value).isdigit() or int(value) < 1):
+            warnings.append('invalid_table_span')
+            continue
+        if key == 'reference_indexes':
+            if not isinstance(value, list):
+                raise ValueError('reference_indexes must be an array')
+            for index in value:
+                _integer(index, 'citation index', 0)
+        if key == 'link':
+            value = _http_url(value, 'content link')
+        out[key] = _project(value, warnings, support, free_keys or key in ('attributes', 'detected_extensions'))
+    return out
+
+
+def render_text(node, depth=0, item=False):
+    if isinstance(node, str):
+        return ('  ' * depth + '• ' if item else '') + node
+    if isinstance(node, list):
+        return '\n'.join(filter(None, (render_text(v, depth, item) for v in node)))
+    if not isinstance(node, dict):
+        return ''
+    lines = []
+    if node.get('snippet'):
+        lines.append(('  ' * depth + '• ' if item else '') + _text(node['snippet'], 'snippet'))
+    if isinstance(node.get('table'), list):
+        for row in node['table']:
+            if not isinstance(row, list):
+                raise ValueError('table rows must be arrays')
+            lines.append(' | '.join(render_text(cell) for cell in row))
+    elif node.get('type') == 'table' and isinstance(node.get('detailed'), list):
+        lines.extend(' | '.join(render_text(cell) for cell in row) for row in node['detailed'])
+    for key in ('list', 'items'):
+        if key in node:
+            if not isinstance(node[key], list):
+                raise ValueError('list items must be arrays')
+            lines.extend(render_text(v, depth + int(item and bool(node.get('snippet'))), True) for v in node[key])
+    return '\n'.join(filter(None, lines))
+
+
+def _normalize_overview(overview, status, warnings):
+    """Project ordered answer content without inventing citation mappings."""
+    if overview is None:
+        if status == 'present':
+            raise ValueError('present AIO has no overview')
+        return None
+    if (not isinstance(overview, dict)
+            or not isinstance(overview.get('blocks'), list)
+            or not isinstance(overview.get('references'), list)):
+        raise ValueError('overview must contain block and reference arrays')
+    if status in ('absent', 'unavailable') and overview['blocks']:
+        raise ValueError('AIO status contradicts nonempty answer blocks')
+
+    blocks = []
+    for block in overview['blocks']:
+        if not isinstance(block, dict) or block.get('type') not in ('paragraph', 'heading', 'list', 'table'):
+            raise ValueError('unsupported AIO block type')
+        projected = _project(block, warnings)
+        if block['type'] in ('paragraph', 'heading'):
+            _text(projected.get('snippet'), 'AIO block snippet')
+        if not render_text(projected):
+            raise ValueError('AIO block has no readable content')
+        blocks.append(projected)
+    if status == 'present' and not blocks:
+        raise ValueError('present AIO has no blocks')
+
+    indexes, references = [], []
+    for ordinal, reference in enumerate(overview['references'], 1):
+        if not isinstance(reference, dict):
+            raise ValueError('each reference must be an object')
+        index = reference.get('index')
+        if index is not None:
+            _integer(index, 'reference index', 0)
+            indexes.append(index)
+        projected = {
+            'ordinal': ordinal, 'index': index,
+            'link': _http_url(reference.get('link'), 'reference link'),
+            **{key: _text(reference.get(key), key, True) for key in ('title', 'source', 'snippet')},
+        }
+        references.append({key: value for key, value in projected.items() if value is not None})
+    for index in _all_reference_indexes(blocks):
+        if index not in indexes:
+            warnings.append(f'unmapped_citation_index:{index}')
+    if len(indexes) != len(set(indexes)):
+        warnings.append('duplicate_reference_index')
+    return {
+        'paragraph': ' '.join(block['snippet'] for block in blocks if block['type'] == 'paragraph'),
+        'text': '\n\n'.join(render_text(block) for block in blocks),
+        'blocks': blocks, 'references': references,
+    }
+
+
+def _normalize_organic_results(results, count, warnings):
+    """Keep source order separate from the provider's returned positions."""
+    count = _integer(count, 'organic_count', 0)
+    if not isinstance(results, list) or count != len(results):
+        raise ValueError('organic_count does not match results')
+    rows = []
+    for ordinal, result in enumerate(results, 1):
+        if not isinstance(result, dict):
+            raise ValueError('each organic result must be an object')
+        position = result.get('position')
+        if position is not None:
+            _integer(position, 'organic position')
+        row = {
+            'ordinal': ordinal, 'position': position,
+            'link': _http_url(result.get('link'), 'organic link'),
+        }
+        for key in ('title', 'snippet', 'displayed_link', 'source', 'date', 'author'):
+            row[key] = _text(result.get(key), key, True)
+        for key in ('sitelinks', 'rich_snippet'):
+            value = result.get(key)
+            if value is not None and not isinstance(value, (dict, list)):
+                raise ValueError(f'{key} must be structured content')
+            row[key] = _project(value, warnings, support=True) if value is not None else None
+        rows.append({key: value for key, value in row.items() if value is not None})
+    return rows
+
+
+def _response_row(record, run_id, ordinal):
+    """Validate one shared record and build its complete stored response."""
+    provenance = record['provenance']
+    status = record['aio_status']
+    capture_status = record.get('capture_status', 'error' if status == 'error' else 'ok')
+    if status not in STATUSES or capture_status not in ('ok', 'error', 'unresolved'):
+        raise ValueError('invalid capture/AIO status')
+    warnings = record.get('warnings', [])
+    if not isinstance(warnings, list) or any(not isinstance(warning, str) for warning in warnings):
+        raise ValueError('warnings must be an array of text')
+    warnings = list(warnings)
+    settings = provenance.get('settings') or {}
+    if not isinstance(settings, dict):
+        raise ValueError('settings must be an object')
+    error = record.get('error')
+    error_message = error.get('message') if isinstance(error, dict) else error
+    row = {
+        'run_id': run_id, 'query_id': provenance['query_id'], 'ordinal': ordinal,
+        'query': _text(provenance['query'], 'query'),
+        'hl': _text(settings.get('hl'), 'hl', True),
+        'gl': _text(settings.get('gl'), 'gl', True),
+        'status': 'ok' if capture_status == 'ok' and status in ('present', 'absent', 'unavailable') else 'error',
+        'error_code': _text(error.get('code'), 'error code', True) if isinstance(error, dict) else None,
+        'error_message': sanitize_error_message(error_message, secrets()) if error_message else None,
+        'snapshot_id': provenance['snapshot_id'],
+        'captured_at': _timestamp(provenance.get('captured_at')),
+        'capture_status': capture_status, 'aio_status': status,
+        'device': _text(settings.get('device'), 'device', True),
+        'google_domain': _text(settings.get('google_domain'), 'google_domain', True),
+        'warnings': warnings, 'response_schema_version': 1,
+        'aio_response': None, 'organic_results': [],
+    }
+    row['aio_response'] = _normalize_overview(record.get('ai_overview'), status, warnings)
+    row['organic_results'] = _normalize_organic_results(
+        record['organic_results'], record.get('organic_count'), warnings,
+    )
+    row['warnings'] = sorted(set(warnings))
+    return row
+
+
+def normalize_records(records, comparison_id, label=''):
+    """Group shared records into stable provider runs and complete response rows."""
+    comparison_uuid = uuid.UUID(comparison_id)
+    if str(comparison_uuid) != comparison_id or not isinstance(records, list) or not records:
+        raise ValueError('a canonical comparison UUID and nonempty records array are required')
+    _dump(records)  # Reject nonfinite/non-JSON input before projection.
+    records = sanitize(records, secrets())
+    groups, query_texts = {}, {}
+    for record in records:
+        if not isinstance(record, dict) or type(record.get('schema_version')) is not int or record['schema_version'] != 1:
+            raise ValueError('unsupported normalized record schema')
+        provenance = record.get('provenance')
+        if not isinstance(provenance, dict):
+            raise ValueError('provenance must be an object')
+        provider = provenance.get('provider')
+        if provider not in ('custom', 'serpapi'):
+            raise ValueError('unsupported provider')
+        run_index = _integer(provenance.get('run_index') if provenance.get('run_index') is not None else 1, 'run_index')
+        identity = (run_index, _text(provenance.get('query_id'), 'query_id'))
+        query_text = _text(provenance.get('query'), 'query')
+        if identity in query_texts and query_texts[identity] != query_text:
+            raise ValueError('matching query IDs must have identical query text')
+        query_texts[identity] = query_text
+        groups.setdefault((provider, run_index), []).append(record)
+
+    tables = {table: [] for table in TABLE_COLUMNS}
+    for (provider, run_index), group in sorted(groups.items()):
+        run_id = str(uuid.uuid5(comparison_uuid, f'{provider}:{run_index}'))
+        query_ids, snapshot_ids, response_rows = set(), set(), []
+        group.sort(key=lambda record: record['provenance']['query_id'])
+        for ordinal, record in enumerate(group, 1):
+            provenance = record['provenance']
+            query_id = _text(provenance['query_id'], 'query_id')
+            snapshot_id = _text(provenance['snapshot_id'], 'snapshot_id')
+            if query_id in query_ids or snapshot_id in snapshot_ids:
+                raise ValueError('duplicate query/snapshot identity within a provider round')
+            query_ids.add(query_id)
+            snapshot_ids.add(snapshot_id)
+            response_rows.append(_response_row(record, run_id, ordinal))
+        metadata = response_counts(response_rows)
+        metadata.update(
+            schema_version=3,
+            fingerprint=hashlib.sha256(_dump({'queries': response_rows}).encode()).hexdigest(),
+        )
+        timestamps = [row['captured_at'] for row in response_rows if row['captured_at']]
+        sources = {Path(record['provenance'].get('source_file') or '').name for record in group}
+        tables['scrape_runs'].append({
+            'run_id': run_id, 'comparison_id': comparison_id, 'provider': provider,
+            'run_index': run_index, 'label': _text(label, 'label', True) or '',
+            'source_file': next(iter(sources)) if len(sources) == 1 else '',
+            'captured_at': min(timestamps) if timestamps else None, 'metadata': metadata,
+        })
+        tables['queries'].extend(response_rows)
+    _dump(tables)
+    return tables
+
+
+def normalize_response_snapshot(snapshot):
+    """Adapt a complete custom capture to the same one-row response contract."""
+    try:
+        _dump(snapshot)
+        snapshot = sanitize(snapshot, secrets())
+        if not isinstance(snapshot, dict):
+            raise ValueError('snapshot must be an object')
+        run_id = _text(snapshot.get('run_id'), 'run_id')
+        if not _RUN_ID.fullmatch(run_id):
+            raise ValueError('run_id must be a lowercase UUID')
+        captured_at = _timestamp(_text(snapshot.get('captured_at'), 'captured_at'))
+        entries = snapshot.get('results')
+        if not isinstance(entries, list) or not entries:
+            raise ValueError('snapshot must contain at least one result')
+        planned = _integer(snapshot.get('planned_query_count', len(entries)), 'planned_query_count')
+        if planned != len(entries):
+            raise ValueError('snapshot is incomplete: result count differs from planned_query_count')
+        records, query_order = [], {}
+        for ordinal, entry in enumerate(entries, 1):
+            if not isinstance(entry, dict):
+                raise ValueError('snapshot entries must be objects')
+            query_id = _text(entry.get('query_id'), 'query_id')
+            if query_id in query_order:
+                raise ValueError('duplicate query_id')
+            query_order[query_id] = ordinal
+            record = normalize_response(entry.get('result'), provider='custom', query_id=query_id,
+                snapshot_id=f'{run_id}:{query_id}', source_file=snapshot.get('source_file', ''), captured_at=captured_at)
+            if any(warning.startswith('invalid_') for warning in record['warnings']):
+                raise ValueError('native response contains malformed scoped content')
+            record['provenance']['run_index'] = snapshot.get('run_index', 1)
+            if record['aio_status'] in ('invalid', 'error'):
+                record['capture_status'] = 'error'
+            elif record['aio_status'] in ('empty', 'unresolved'):
+                record['capture_status'] = 'unresolved'
+            else:
+                record['capture_status'] = 'ok'
+            records.append(record)
+        tables = normalize_records(records, run_id, snapshot.get('label', ''))
+        run = tables['scrape_runs'][0]
+        run.update(run_id=run_id, comparison_id=None, captured_at=captured_at)
+        for query in tables['queries']:
+            query.update(run_id=run_id, ordinal=query_order[query['query_id']])
+        tables['queries'].sort(key=lambda row: row['ordinal'])
+        run['metadata']['fingerprint'] = hashlib.sha256(_dump({'queries': tables['queries']}).encode()).hexdigest()
+        return tables
+    except (ValueError, TypeError, KeyError) as exc:
+        raise SnapshotError(str(exc)) from None
+
+
+def response_counts(queries):
+    """Logical content counts, not additional database rows."""
+    return {'queries': len(queries),
+            'ai_overviews': sum(q['aio_response'] is not None for q in queries),
+            'ai_references': sum(len((q['aio_response'] or {}).get('references', [])) for q in queries),
+            'organic_results': sum(len(q['organic_results']) for q in queries)}
+
+
+def _post_sql(body, project_id, access_token, timeout):
+    """Send one fixed-host request through the redirect-refusing HTTP adapter.
+
+    Callers retain their native/comparison exception and receipt contracts.
+    A transport failure can follow a committed write, so this never retries.
+    """
+    request = urllib.request.Request(
+        f"{_MANAGEMENT_HOST}/v1/projects/{project_id}/database/query",
+        data=body,
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    with _open(request, timeout) as response:
+        return response.read()
+
+
+def execute_sql(query, parameters=None, *, project_id, access_token, read_only=False, timeout=90):
+    """Execute comparison SQL once, retaining its ValueError error contract."""
+    if not isinstance(project_id, str) or not _PROJECT_REF.fullmatch(project_id):
+        raise ValueError('invalid SUPABASE_PROJECT_ID')
+    if not isinstance(access_token, str) or not access_token.strip():
+        raise ValueError('SUPABASE_ACCESS_TOKEN is required')
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError('invalid SQL request timeout')
+    body = _dump({'query': query, 'parameters': parameters or [], 'read_only': read_only}).encode()
+    try:
+        result = json.loads(_post_sql(body, project_id, access_token, timeout))
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise ValueError(f'Supabase SQL request failed: HTTP {exc.code}; inspect the saved batch before retrying writes') from None
+    except (OSError, urllib.error.URLError, ValueError) as exc:
+        raise ValueError(f'Supabase SQL transport/response failed ({type(exc).__name__}); do not retry an uncertain write automatically') from None
+    if not isinstance(result, list):
+        raise ValueError('unexpected SQL response')
+    return result
+
+
+def upload_records(records, comparison_id, project_id, access_token, label='', *, executor=None):
+    """Normalize and upload shared records, validating the comparison receipt.
+
+    The optional executor is the internal SQL seam used by the comparison
+    command adapter and tests. It must perform one request without retries.
+    """
+    execute = execute_sql if executor is None else executor
+    tables = normalize_records(records, comparison_id, label)
+    receipt = execute(COMPARISON_UPLOAD_SQL, [_dump(tables)], project_id=project_id, access_token=access_token)
+    expected = {'comparison_id': comparison_id, **{t: len(rows) for t, rows in tables.items()}}
+    if (receipt != [expected] or not isinstance(receipt[0], dict)
+            or any(type(receipt[0].get(t)) is not int for t in TABLE_COLUMNS)):
+        raise ValueError('upload receipt does not match expected counts; inspect the batch before retrying')
+    return receipt[0]
+
+
+def sql_export(tables):
+    """Portable PostgreSQL seed: hex encoding keeps data out of SQL syntax."""
+    payload = _dump(tables).encode().hex()
+    expression = f"convert_from(decode('{payload}', 'hex'), 'UTF8')::jsonb"
+    return 'BEGIN;\n' + COMPARISON_UPLOAD_SQL.replace('$1::jsonb', expression) + ';\nCOMMIT;\n'
+
+
 def upload_snapshot(snapshot, project_id, access_token, timeout=90):
     """Validate a snapshot and insert it as one atomic run through Supabase."""
     if not isinstance(project_id, str) or not _PROJECT_REF.fullmatch(project_id):
@@ -357,19 +505,13 @@ def upload_snapshot(snapshot, project_id, access_token, timeout=90):
     if not isinstance(access_token, str) or not access_token.strip():
         raise ConfigurationError("SUPABASE_ACCESS_TOKEN must be a non-empty personal access token")
 
-    normalized = normalize_snapshot(snapshot)
+    normalized = normalize_response_snapshot(snapshot)
     run_row = normalized["scrape_runs"][0]
     body = json.dumps({"query": UPLOAD_SQL, "parameters": [_dump(normalized)], "read_only": False}).encode("utf-8")
-    request = urllib.request.Request(
-        f"{_MANAGEMENT_HOST}/v1/projects/{project_id}/database/query",
-        data=body,
-        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with _open(request, timeout) as response:
-            raw = response.read()
+        raw = _post_sql(body, project_id, access_token, timeout)
     except urllib.error.HTTPError as exc:
+        exc.close()
         raise UploadError(f"Supabase Management API returned HTTP {exc.code}") from None
     except (urllib.error.URLError, OSError) as exc:
         raise UploadError(f"Supabase Management API request failed ({type(exc).__name__})") from None
@@ -380,5 +522,9 @@ def upload_snapshot(snapshot, project_id, access_token, timeout=90):
     return _validate_response(rows, run_row["run_id"], run_row["metadata"])
 
 
-__all__ = ["SnapshotError", "ConfigurationError", "UploadError", "UPLOAD_SQL",
-           "sanitize_error_message", "normalize_snapshot", "upload_snapshot"]
+__all__ = [
+    "SnapshotError", "ConfigurationError", "UploadError", "UPLOAD_SQL",
+    "sanitize_error_message", "normalize_response_snapshot", "upload_snapshot",
+    "normalize_records", "upload_records", "execute_sql", "sql_export",
+    "render_text", "response_counts", "secrets",
+]

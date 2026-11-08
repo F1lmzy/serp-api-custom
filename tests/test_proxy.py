@@ -1,5 +1,5 @@
 import contextlib
-import csv
+import json
 import io
 import tempfile
 import unittest
@@ -63,18 +63,21 @@ class ProxySelectionTests(unittest.TestCase):
             pass
 
         async def search(scraper, query, hl, gl):
-            return {"search_parameters": {"q": query, "hl": hl, "gl": gl}}
+            return {"search_parameters": {"q": query, "hl": hl, "gl": gl}, "organic_results": []}
 
         output = io.StringIO()
-        with patch.dict("os.environ", env, clear=True), \
-                patch.object(a, "_load_env_file"), \
-                patch.object(a.GoogleAIOScraper, "__aenter__", enter), \
-                patch.object(a.GoogleAIOScraper, "__aexit__", exit_context), \
-                patch.object(a.GoogleAIOScraper, "search", search), \
-                patch("sys.argv", ["aio_scraper", *args]), \
-                contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
-            status = a.main()
-        return status, selected, list(csv.DictReader(io.StringIO(output.getvalue())))
+        with tempfile.TemporaryDirectory() as folder:
+            prefix = Path(folder) / "capture"
+            with patch.dict("os.environ", env, clear=True), \
+                    patch.object(a, "_load_env_file"), \
+                    patch.object(a.GoogleAIOScraper, "__aenter__", enter), \
+                    patch.object(a.GoogleAIOScraper, "__aexit__", exit_context), \
+                    patch.object(a.GoogleAIOScraper, "search", search), \
+                    patch("sys.argv", ["aio_scraper", *args, "--out-prefix", str(prefix)]), \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+                status = a.main()
+            saved = json.loads(prefix.with_suffix(".json").read_text()) if prefix.with_suffix(".json").exists() else {}
+            return status, selected, saved.get("results", []), json.loads(output.getvalue())
 
     def test_cli_selection_overrides_environment_for_single_and_batch(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -83,22 +86,25 @@ class ProxySelectionTests(unittest.TestCase):
             for query_args in (["first"], ["--queries", str(queries), "--delay", "0"]):
                 for mode, env_mode in (("direct", "dataimpulse"), ("dataimpulse", "direct")):
                     with self.subTest(query_args=query_args, mode=mode):
-                        status, selected, rows = self.run_cli(
+                        status, selected, results, summary = self.run_cli(
                             [*query_args, "--proxy", mode], {**self.credentials, "GOOGLE_AIO_PROXY": env_mode})
                         self.assertEqual(status, 0)
                         self.assertEqual(bool(selected[0]), mode == "dataimpulse")
-                        self.assertEqual([r["Type"] for r in rows], ["no_results"] * len(rows))
-                        self.assertEqual(len(rows), 1 if query_args[0] == "first" else 2)
+                        self.assertEqual(len(results), 1 if query_args[0] == "first" else 2)
+                        self.assertEqual(results[0]["query_id"], "P01")
+                        self.assertEqual(results[0]["result"]["organic_results"], [])
+                        self.assertFalse(summary["uploaded"])
 
     def test_cli_default_is_direct_despite_saved_credentials(self):
-        status, selected, rows = self.run_cli(["first"], self.credentials)
+        status, selected, results, summary = self.run_cli(["first"], self.credentials)
         self.assertEqual(status, 0)
         self.assertEqual(selected, [None])
-        self.assertEqual(rows[0]["Type"], "no_results")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(summary["errors"], 0)
 
     def test_missing_credentials_cli_outputs_safe_error_without_launch(self):
-        status, selected, rows = self.run_cli(["first", "--proxy", "dataimpulse"], {})
+        status, selected, results, summary = self.run_cli(["first", "--proxy", "dataimpulse"], {})
         self.assertEqual(status, 2)
         self.assertEqual(selected, [])
-        self.assertEqual(rows[0]["Error Code"], "SCRAPE_ERROR")
-        self.assertIn("credentials", rows[0]["Error Message"])
+        self.assertEqual(results, [])
+        self.assertIn("credentials", summary["error"])

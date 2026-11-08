@@ -38,7 +38,7 @@ class ReferenceExtractionTests(unittest.TestCase):
                          a._reference_key("https://source.example/article"))
         self.assertIsNone(a._reference_key("javascript:alert(1)"))
 
-    def test_url_source_cards_keep_indexes_deduplication_and_csv_rows(self):
+    def test_url_source_cards_keep_indexes_and_deduplication_in_json(self):
         html = '''<div id="search"><div id="rso"><div id="eKIzJc">
           <div data-subtree="aimc"><div jsname="KFl8ub">
             <div>First fact <a href="/url?sa=i&amp;url=CAESone&amp;ved=inline" aria-label="Publisher"></a></div>
@@ -56,9 +56,10 @@ class ReferenceExtractionTests(unittest.TestCase):
         ])
         self.assertEqual(overview["text_blocks"][0]["reference_indexes"], [0])
         self.assertEqual(overview["text_blocks"][1]["list"][0]["reference_indexes"], [1])
-        rows = a._csv_rows(result, "P01")
-        references = [r for r in rows if r["Type"] == "aio_reference"]
-        self.assertEqual([r["Position"] for r in references], [1, 2])
-        self.assertEqual(references[0]["Link"], overview["references"][0]["link"])
-        self.assertEqual(rows[0]["Reference Indexes"], "0")
-        self.assertEqual(rows[1]["Reference Indexes"], "1")
+        from comparison_storage import normalize_native_snapshot
+        query = normalize_native_snapshot({
+            "run_id": "00000000-0000-0000-0000-000000000001", "captured_at": "2026-01-01T00:00:00Z",
+            "results": [{"query_id": "P01", "result": result}]})["queries"][0]
+        references = query["aio_response"]["references"]
+        self.assertEqual([r["index"] for r in references], [0, 1])
+        self.assertEqual(references[0]["link"], overview["references"][0]["link"])

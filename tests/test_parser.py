@@ -1,7 +1,3 @@
-import contextlib
-import csv
-import io
-import sys
 import unittest
 from unittest.mock import patch
 
@@ -132,21 +128,11 @@ class ParseSearchHtmlTests(unittest.TestCase):
         self.assertEqual(settings["username"], "user@name")
         self.assertEqual(settings["password"], "pa:ss")
 
-    def test_cli_outputs_csv_even_when_serp_has_no_overview(self):
-        async def fake_scrape(query, hl, gl, timeout_ms, proxy_mode=None):
-            return {"search_parameters": {"engine": "google", "q": query, "hl": hl, "gl": gl},
-                    "organic_results": [{"position": 1, "title": "Result", "link": "https://example.org/", "snippet": "Text"}]}
-
-        stdout = io.StringIO()
-        with patch.object(aio_scraper, "scrape", fake_scrape), \
-                patch.object(sys, "argv", ["aio_scraper", "coffee"]), \
-                contextlib.redirect_stdout(stdout):
-            exit_code = aio_scraper.main()
-        rows = list(csv.DictReader(io.StringIO(stdout.getvalue())))
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(rows[0]["Query"], "P01")
-        self.assertEqual(rows[0]["Search Query"], "coffee")
-        self.assertEqual(rows[0]["Type"], "organic")
+    def test_engine_cli_uses_the_shared_json_capture_controller(self):
+        import run_supabase_batch
+        with patch.object(run_supabase_batch, "main", return_value=0) as controller:
+            self.assertEqual(aio_scraper.main(["coffee", "--out-prefix", "capture"]), 0)
+        controller.assert_called_once_with(["coffee", "--out-prefix", "capture"])
 
     def test_proxy_url_with_invalid_port_returns_safe_scrape_error(self):
         from unittest.mock import patch

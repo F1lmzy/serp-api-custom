@@ -1,12 +1,11 @@
 import asyncio
-import csv
 import json
 import contextlib
 import io
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import aio_scraper as a
 import run_supabase_batch as batch
@@ -28,6 +27,8 @@ class BatchCaptureTests(unittest.TestCase):
             async def search(self, query, hl, gl):
                 if query == 'bad':
                     raise a.ChallengeDetected('Rejected https://www.google.com/sorry/?token=secret-value')
+                if query == 'plain':
+                    return {'search_parameters': {'q': query, 'hl': hl, 'gl': gl}, 'organic_results': []}
                 return {
                     'search_parameters': {'q': query, 'hl': hl, 'gl': gl},
                     'ai_overview': {'text_blocks': [{'type': 'paragraph', 'snippet': '=Complete answer ' + 'x' * 6000}], 'references': []},
@@ -36,22 +37,47 @@ class BatchCaptureTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp, patch.object(batch.a, 'GoogleAIOScraper', FakeScraper):
             prefix = Path(tmp) / 'output'
-            snapshot = asyncio.run(batch.collect_batch(['good', 'bad'], prefix, delay=0))
+            snapshot = asyncio.run(batch.collect_batch(['good', 'plain', 'bad'], prefix, delay=0))
             saved = json.loads(prefix.with_suffix('.json').read_text())
             self.assertEqual(saved, snapshot)
-            self.assertEqual([r['query_id'] for r in saved['results']], ['P01', 'P02'])
-            self.assertEqual(saved['planned_query_count'], 2)
-            self.assertNotIn('secret-value', saved['results'][1]['result']['error']['message'])
+            self.assertEqual([r['query_id'] for r in saved['results']], ['P01', 'P02', 'P03'])
+            self.assertEqual(saved['planned_query_count'], 3)
+            self.assertNotIn('secret-value', saved['results'][2]['result']['error']['message'])
             text = saved['results'][0]['result']['ai_overview']['text_blocks'][0]['snippet']
             self.assertTrue(text.startswith('=Complete'))
             self.assertGreater(len(text), 6000)
-            with prefix.with_suffix('.csv').open() as file:
-                rows = list(csv.DictReader(file))
-            self.assertTrue(rows[0]['Snippet'].startswith("'=Complete"))
-            self.assertEqual(rows[1]['Error Code'], 'CAPTCHA_REQUIRED')
-            normalized = storage.normalize_snapshot(saved)
-            self.assertEqual(normalized['queries'][1]['status'], 'error')
-            self.assertEqual(normalized['ai_overviews'][0]['paragraph'], text)
+            self.assertFalse(prefix.with_suffix('.csv').exists())
+            normalized = storage.normalize_response_snapshot(saved)
+            self.assertEqual(len(normalized['queries']), 3)
+            self.assertEqual(normalized['queries'][2]['status'], 'error')
+            self.assertIsNone(normalized['queries'][1]['aio_response'])
+            self.assertEqual(normalized['queries'][0]['aio_response']['paragraph'], text)
+
+    def test_json_checkpoints_preserve_harmless_urls_full_text_and_structure(self):
+        snapshot = {'run_id': '00000000-0000-0000-0000-000000000001', 'results': [
+            {'query_id': 'P01', 'result': {
+                'search_parameters': {'q': '=Cities 城市', 'hl': 'en', 'gl': 'us'},
+                'ai_overview': {'text_blocks': [
+                    {'type': 'paragraph', 'snippet': 'Complete body ' + 'x' * 8000,
+                     'snippet_links': [{'text': 'source', 'link': 'https://example.com/a?topic=social+security&n=2#part'}]},
+                    {'type': 'table', 'table': [['H', 'V'], ['A', 'B']]}],
+                    'references': [{'index': 7, 'link': 'https://www.google.com/goto?url=opaque&source=web'}]},
+                'organic_results': [{'position': 4, 'link': 'https://example.com/search?q=public+data',
+                                     'title': 'Original title', 'snippet': 'Full snippet'}]}}]}
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(batch.os.environ, {}, clear=True):
+            path = Path(tmp) / 'capture.json'
+            batch._save_snapshot(snapshot, path)
+            self.assertEqual(json.loads(path.read_text()), snapshot)
+
+    def test_json_checkpoints_redact_solver_and_proxy_credentials(self):
+        snapshot = {'results': [{'message': 'echo SOLVER_SECRET123 https://user:proxy-password@proxy.example/'}]}
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(batch.os.environ, {'TWOCAPTCHA_API_KEY': 'SOLVER_SECRET123'}):
+            path = Path(tmp) / 'capture.json'
+            batch._save_snapshot(snapshot, path)
+            content = path.read_text()
+            self.assertNotIn('SOLVER_SECRET123', content)
+            self.assertNotIn('proxy-password', content)
+            self.assertIn('SOLVER_SECRET123', snapshot['results'][0]['message'])
 
     def test_incomplete_snapshot_is_not_uploadable(self):
         class BrokenScraper:
@@ -70,7 +96,7 @@ class BatchCaptureTests(unittest.TestCase):
                 asyncio.run(batch.collect_batch(['good'], prefix, delay=0))
             snapshot = json.loads(prefix.with_suffix('.json').read_text())
             with self.assertRaises(storage.SnapshotError):
-                storage.normalize_snapshot(snapshot)
+                storage.normalize_response_snapshot(snapshot)
 
     def test_partial_nonempty_snapshot_is_rejected(self):
         snapshot = {'run_id': '00000000-0000-0000-0000-000000000001', 'label': '',
@@ -78,7 +104,7 @@ class BatchCaptureTests(unittest.TestCase):
                     'planned_query_count': 2, 'results': [{'query_id': 'P01', 'result': {
                         'search_parameters': {'q': 'only first query', 'hl': 'en', 'gl': 'us'}}}]}
         with self.assertRaises(storage.SnapshotError):
-            storage.normalize_snapshot(snapshot)
+            storage.normalize_response_snapshot(snapshot)
 
 
 class BatchCliTests(unittest.TestCase):
@@ -105,6 +131,17 @@ class BatchCliTests(unittest.TestCase):
                 upload.assert_called_once_with(snapshot, 'a' * 20, 'sbp_test')
                 self.assertTrue(json.loads(output.getvalue())['uploaded'])
                 self.assertTrue(path.exists())
+
+    def test_retired_csv_out_option_is_not_an_alias_for_json_output(self):
+        snapshot = {'run_id': '00000000-0000-0000-0000-000000000001', 'captured_at': '2026-01-01T00:00:00Z',
+                    'results': [{'query_id': 'P01', 'result': {'search_parameters': {'q': 'q'}, 'organic_results': []}}]}
+        with patch.object(batch.a, '_load_env_file'), \
+                patch.object(batch, 'collect_batch', new_callable=AsyncMock, return_value=snapshot) as capture, \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                batch.main(['q', '--out', 'legacy.csv'])
+        self.assertEqual(error.exception.code, 2)
+        capture.assert_not_awaited()
 
     def test_env_error_is_reported_without_traceback(self):
         output = io.StringIO()

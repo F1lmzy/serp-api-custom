@@ -44,10 +44,6 @@ def snapshot(results=None, **overrides):
     return base
 
 
-def counts(normalized):
-    return {f"{k}": len(v) for k, v in normalized.items() if k != "scrape_runs"}
-
-
 class FakeResponse:
     def __init__(self, body):
         self._body = body
@@ -62,129 +58,113 @@ class FakeResponse:
         return False
 
 
-class NormalizeSnapshotTests(unittest.TestCase):
-    def test_normalizes_full_result_losslessly(self):
-        normalized = sr.normalize_snapshot(snapshot())
+class NormalizeResponseTests(unittest.TestCase):
+    def test_only_the_finalized_response_formatter_is_exposed(self):
+        self.assertFalse(hasattr(sr, "normalize_snapshot"))
+
+    def test_normalizes_one_complete_response_row(self):
+        normalized = sr.normalize_response_snapshot(snapshot())
+        self.assertEqual(set(normalized), {"scrape_runs", "queries"})
         self.assertEqual(normalized["scrape_runs"][0]["run_id"], RUN_ID)
         self.assertEqual(normalized["scrape_runs"][0]["source_file"], "queries.txt")
-        self.assertEqual(normalized["queries"], [{
-            "query_id": "P01", "ordinal": 1, "query": "what is x", "hl": "en", "gl": "us",
-            "status": "ok", "error_code": None, "error_message": None}])
-        self.assertEqual(normalized["ai_overviews"], [{
-            "query_id": "P01", "paragraph": "Body", "text_blocks": native_result()["ai_overview"]["text_blocks"]}])
-        self.assertEqual(normalized["ai_references"], [
-            {"query_id": "P01", "ordinal": 1, "title": "Ref A", "source": "A", "link": "https://a.example/"},
-            {"query_id": "P01", "ordinal": 2, "title": "Ref B", "source": "B", "link": "https://b.example/"}])
-        self.assertEqual([r["ordinal"] for r in normalized["organic_results"]], [1, 2])
-        for row in normalized["ai_references"]:
-            self.assertNotIn("reference_index", row)
+        self.assertEqual(len(normalized["queries"]), 1)
+        query = normalized["queries"][0]
+        self.assertEqual(query["query_id"], "P01")
+        self.assertEqual(query["query"], "what is x")
+        self.assertEqual(query["response_schema_version"], 1)
+        self.assertEqual(query["aio_response"]["paragraph"], "Body")
+        self.assertEqual(query["aio_response"]["blocks"], native_result()["ai_overview"]["text_blocks"])
+        self.assertEqual([r["index"] for r in query["aio_response"]["references"]], [0, 1])
+        self.assertEqual([r["ordinal"] for r in query["organic_results"]], [1, 2])
 
     def test_preserves_long_text_without_truncation(self):
-        long_body = "x" * 9000
         result = native_result()
-        result["ai_overview"]["text_blocks"][1]["snippet"] = long_body
-        normalized = sr.normalize_snapshot(snapshot([{"query_id": "P01", "result": result}]))
-        self.assertEqual(normalized["ai_overviews"][0]["paragraph"], long_body)
-        self.assertEqual(normalized["ai_overviews"][0]["text_blocks"][1]["snippet"], long_body)
+        result["ai_overview"]["text_blocks"][1]["snippet"] = "x" * 9000
+        query = sr.normalize_response_snapshot(snapshot([{"query_id": "P01", "result": result}]))["queries"][0]
+        self.assertEqual(query["aio_response"]["paragraph"], "x" * 9000)
+        self.assertEqual(query["aio_response"]["blocks"][1]["snippet"], "x" * 9000)
 
     def test_preserves_block_order_and_list_citations(self):
-        normalized = sr.normalize_snapshot(snapshot())
-        blocks = normalized["ai_overviews"][0]["text_blocks"]
+        blocks = sr.normalize_response_snapshot(snapshot())["queries"][0]["aio_response"]["blocks"]
         self.assertEqual([b["type"] for b in blocks], ["heading", "paragraph", "list"])
         self.assertEqual(blocks[2]["list"][0]["reference_indexes"], [1])
 
-    def test_rejects_duplicate_query_ids(self):
-        results = [{"query_id": "P01", "result": native_result()},
-                   {"query_id": "P01", "result": native_result()}]
-        with self.assertRaises(sr.SnapshotError):
-            sr.normalize_snapshot(snapshot(results))
+    def test_rejects_duplicate_query_ids_and_empty_snapshots(self):
+        duplicates = [{"query_id": "P01", "result": native_result()}] * 2
+        for value in (snapshot(duplicates), snapshot([])):
+            with self.subTest(value=value), self.assertRaises(sr.SnapshotError):
+                sr.normalize_response_snapshot(value)
 
-    def test_rejects_empty_results(self):
-        with self.assertRaises(sr.SnapshotError):
-            sr.normalize_snapshot(snapshot([]))
+    def test_sparse_indexes_and_unmapped_citations_are_preserved_not_inferred(self):
+        result = native_result()
+        result["ai_overview"]["references"][0]["index"] = 7
+        query = sr.normalize_response_snapshot(snapshot([{"query_id": "P01", "result": result}]))["queries"][0]
+        self.assertEqual(query["aio_response"]["references"][0]["index"], 7)
+        self.assertIn("unmapped_citation_index:0", query["warnings"])
 
-    def test_rejects_nonconsecutive_reference_index(self):
-        for bad in (True, 1.0, 2):
-            result = native_result()
-            result["ai_overview"]["references"][0]["index"] = bad
-            with self.subTest(index=bad), self.assertRaises(sr.SnapshotError):
-                sr.normalize_snapshot(snapshot([{"query_id": "P01", "result": result}]))
+    def test_rejects_invalid_reference_and_citation_indexes(self):
+        for field in ("reference", "citation"):
+            for bad in (-1, True, 1.0, "0"):
+                result = native_result()
+                if field == "reference":
+                    result["ai_overview"]["references"][0]["index"] = bad
+                else:
+                    result["ai_overview"]["text_blocks"][1]["reference_indexes"] = [bad]
+                with self.subTest(field=field, value=bad), self.assertRaises(sr.SnapshotError):
+                    sr.normalize_response_snapshot(snapshot([{"query_id": "P01", "result": result}]))
 
-    def test_rejects_out_of_range_citation_index(self):
-        for bad in (-1, True, 2, "0"):
-            result = native_result()
-            result["ai_overview"]["text_blocks"][1]["reference_indexes"] = [bad]
-            with self.subTest(index=bad), self.assertRaises(sr.SnapshotError):
-                sr.normalize_snapshot(snapshot([{"query_id": "P01", "result": result}]))
-
-    def test_rejects_organic_position_mismatch(self):
+    def test_preserves_returned_rank_separately_from_source_order(self):
         result = native_result()
         result["organic_results"][1]["position"] = 3
-        with self.assertRaises(sr.SnapshotError):
-            sr.normalize_snapshot(snapshot([{"query_id": "P01", "result": result}]))
+        query = sr.normalize_response_snapshot(snapshot([{"query_id": "P01", "result": result}]))["queries"][0]
+        self.assertEqual([(r["ordinal"], r["position"]) for r in query["organic_results"]], [(1, 1), (2, 3)])
 
-    def test_rejects_unsafe_links(self):
+    def test_rejects_unsafe_links_and_unknown_block_types(self):
         for bad in ("javascript:alert(1)", "data:text/html,x", "/relative/path"):
             result = native_result()
             result["organic_results"][0]["link"] = bad
             with self.subTest(link=bad), self.assertRaises(sr.SnapshotError):
-                sr.normalize_snapshot(snapshot([{"query_id": "P01", "result": result}]))
-
-    def test_rejects_unknown_block_type(self):
+                sr.normalize_response_snapshot(snapshot([{"query_id": "P01", "result": result}]))
         result = native_result()
         result["ai_overview"]["text_blocks"][0]["type"] = "chart"
         with self.assertRaises(sr.SnapshotError):
-            sr.normalize_snapshot(snapshot([{"query_id": "P01", "result": result}]))
+            sr.normalize_response_snapshot(snapshot([{"query_id": "P01", "result": result}]))
 
-    def test_error_result_is_stored_with_sanitized_message(self):
-        result = {
-            "search_parameters": {"engine": "google", "q": "what is x", "hl": "en", "gl": "us"},
-            "error": {"code": "CAPTCHA_REQUIRED",
-                      "message": "blocked at https://www.google.com/search?q=x&google_abuse=GOOGLE_ABUSE_EXEMPTION%3Dabc key sb_secret_abc123"},
-        }
-        normalized = sr.normalize_snapshot(snapshot([{"query_id": "P01", "result": result}]))
-        row = normalized["queries"][0]
-        self.assertEqual(row["status"], "error")
-        self.assertEqual(row["error_code"], "CAPTCHA_REQUIRED")
-        self.assertIn("?<redacted>", row["error_message"])
-        self.assertIn("<redacted>", row["error_message"])
-        self.assertNotIn("GOOGLE_ABUSE", row["error_message"])
-        self.assertNotIn("sb_secret_", row["error_message"])
-        self.assertEqual(row["query"], "what is x")
-        self.assertEqual(normalized["ai_overviews"], [])
+    def test_error_response_is_stored_with_sanitized_message(self):
+        result = {"search_parameters": {"q": "what is x", "hl": "en", "gl": "us"},
+                  "error": {"code": "CAPTCHA_REQUIRED", "message": "blocked https://google.com/search?q=x key sb_secret_abc123"}}
+        query = sr.normalize_response_snapshot(snapshot([{"query_id": "P01", "result": result}]))["queries"][0]
+        self.assertEqual(query["status"], "error")
+        self.assertEqual(query["error_code"], "CAPTCHA_REQUIRED")
+        self.assertNotIn("sb_secret_", query["error_message"])
+        self.assertIn("?<redacted>", query["error_message"])
+        self.assertIsNone(query["aio_response"])
 
-    def test_metadata_only_contains_allowlisted_keys(self):
-        snap = snapshot(proxy="http://user:pass@proxy.example:823")
-        snap["results"][0]["extra"] = "ignore me"
-        metadata = sr.normalize_snapshot(snap)["scrape_runs"][0]["metadata"]
-        self.assertEqual(set(metadata), {"queries", "ai_overviews", "ai_references", "organic_results", "fingerprint"})
-        self.assertNotIn("proxy", json.dumps(metadata))
-
-    def test_fingerprint_is_stable_and_content_sensitive(self):
-        first = sr.normalize_snapshot(snapshot())["scrape_runs"][0]["metadata"]["fingerprint"]
-        second = sr.normalize_snapshot(snapshot())["scrape_runs"][0]["metadata"]["fingerprint"]
+    def test_metadata_is_allowlisted_and_fingerprint_is_stable_and_sensitive(self):
+        original = snapshot(proxy="http://user:pass@proxy.example:823")
+        first = sr.normalize_response_snapshot(original)["scrape_runs"][0]["metadata"]
+        second = sr.normalize_response_snapshot(original)["scrape_runs"][0]["metadata"]
+        self.assertEqual(set(first), {"queries", "ai_overviews", "ai_references", "organic_results", "schema_version", "fingerprint"})
         self.assertEqual(first, second)
-        self.assertRegex(first, r"\A[0-9a-f]{64}\Z")
-        changed = sr.normalize_snapshot(snapshot([{"query_id": "P01", "result": native_result(query="different")}]))
-        self.assertNotEqual(first, changed["scrape_runs"][0]["metadata"]["fingerprint"])
+        self.assertNotIn("proxy", json.dumps(first))
+        self.assertRegex(first["fingerprint"], r"\A[0-9a-f]{64}\Z")
+        changed = sr.normalize_response_snapshot(snapshot([{"query_id": "P01", "result": native_result(query="different")}]))
+        self.assertNotEqual(first["fingerprint"], changed["scrape_runs"][0]["metadata"]["fingerprint"])
 
-    def test_rejects_nonfinite_json_values(self):
+    def test_rejects_nonfinite_values_invalid_ids_and_naive_timestamps(self):
         result = native_result()
         result["ai_overview"]["text_blocks"][1]["score"] = float("inf")
-        with self.assertRaises(sr.SnapshotError):
-            sr.normalize_snapshot(snapshot([{"query_id": "P01", "result": result}]))
-
-    def test_rejects_invalid_run_id_and_timestamp(self):
-        with self.assertRaises(sr.SnapshotError):
-            sr.normalize_snapshot(snapshot(run_id="not-a-uuid"))
-        with self.assertRaises(sr.SnapshotError):
-            sr.normalize_snapshot(snapshot(captured_at="yesterday"))
+        for value in (snapshot([{"query_id": "P01", "result": result}]),
+                      snapshot(run_id="not-a-uuid"), snapshot(captured_at="yesterday"),
+                      snapshot(captured_at="2026-01-01T00:00:00")):
+            with self.subTest(value=value), self.assertRaises(sr.SnapshotError):
+                sr.normalize_response_snapshot(value)
 
     def test_does_not_mutate_caller_snapshot(self):
-        snap = snapshot()
-        original = copy.deepcopy(snap)
-        sr.normalize_snapshot(snap)
-        self.assertEqual(snap, original)
+        value = snapshot()
+        original = copy.deepcopy(value)
+        sr.normalize_response_snapshot(value)
+        self.assertEqual(value, original)
 
 
 class SanitizeErrorTests(unittest.TestCase):
@@ -252,6 +232,52 @@ class UploadSnapshotTests(unittest.TestCase):
         self.assertEqual(summary, {"run_id": RUN_ID, "queries": 1, "ai_overviews": 1,
                                    "ai_references": 2, "organic_results": 2})
 
+    def test_native_upload_stores_expanded_content_in_one_response_row(self):
+        result = native_result()
+        result['ai_overview']['text_blocks'].append({'type': 'table', 'table': [['A', 'B']]})
+        result['ai_overview']['references'][0].update(index=7, snippet='Reference ' + 'x' * 9000)
+        result['organic_results'][0].update(position=4, author='Author', date='2 days ago')
+        sr.upload_snapshot(snapshot([{'query_id': 'P01', 'result': result}]), 'abcdefghij0123456789', 'pat')
+        payload = json.loads(self.sent_payload()['parameters'][0])
+        self.assertEqual(set(payload), {'scrape_runs', 'queries'})
+        self.assertEqual(payload['scrape_runs'][0]['run_id'], RUN_ID)
+        self.assertIsNone(payload['scrape_runs'][0]['comparison_id'])
+        self.assertEqual(len(payload['queries']), 1)
+        q = payload['queries'][0]
+        self.assertEqual(q['run_id'], RUN_ID)
+        self.assertEqual(q['aio_response']['blocks'][-1]['type'], 'table')
+        self.assertEqual(q['aio_response']['references'][0]['index'], 7)
+        self.assertEqual(q['aio_response']['references'][0]['snippet'], 'Reference ' + 'x' * 9000)
+        self.assertEqual(q['organic_results'][0]['position'], 4)
+        self.assertEqual(q['organic_results'][0]['author'], 'Author')
+
+    def test_current_native_formatter_distinguishes_absent_from_extraction_failures(self):
+        for aio_status, capture_status, status in (
+                ('absent', 'ok', 'ok'), ('unavailable', 'ok', 'ok'),
+                ('empty', 'unresolved', 'error'), ('unresolved', 'unresolved', 'error'),
+                ('invalid', 'error', 'error')):
+            with self.subTest(aio_status=aio_status):
+                result = native_result()
+                result.pop('ai_overview')
+                result['extraction_metadata'] = {'aio_status': aio_status}
+                q = sr.normalize_response_snapshot(snapshot([{'query_id': 'P01', 'result': result}]))['queries'][0]
+                self.assertEqual((q['aio_status'], q['capture_status'], q['status']), (aio_status, capture_status, status))
+                self.assertIsNone(q['aio_response'])
+
+    def test_current_native_formatter_preserves_order_and_unknown_locale(self):
+        result = native_result()
+        result['search_parameters'] = {'q': 'q'}
+        snap = snapshot([{'query_id': 'P02', 'result': result}, {'query_id': 'P01', 'result': result}])
+        rows = sr.normalize_response_snapshot(snap)['queries']
+        self.assertEqual([q['query_id'] for q in rows], ['P02', 'P01'])
+        self.assertEqual([q['ordinal'] for q in rows], [1, 2])
+        self.assertTrue(all(q['hl'] is None and q['gl'] is None for q in rows))
+
+    def test_native_upload_rejects_incomplete_snapshots_before_network(self):
+        with self.assertRaises(sr.SnapshotError):
+            sr.upload_snapshot(snapshot(planned_query_count=2), 'abcdefghij0123456789', 'pat')
+        self.mock_open.assert_not_called()
+
     def test_sql_injection_like_query_stays_in_parameter_json(self):
         result = native_result(query="x'); DROP TABLE public.queries;--")
         sr.upload_snapshot(snapshot([{"query_id": "P01", "result": result}]), "abcdefghij0123456789", "pat")
@@ -269,9 +295,11 @@ class UploadSnapshotTests(unittest.TestCase):
         self.assertIn("$1::jsonb", sql)
         self.assertIn("jsonb_to_recordset", sql)
         self.assertNotIn("reference_index", sql)
-        order = [sql.index(name) for name in
-                 ("inserted_run", "inserted_queries", "inserted_overviews", "inserted_references")]
-        self.assertEqual(order, sorted(order))
+        self.assertIn('aio_response', sql)
+        self.assertIn('organic_results', sql)
+        self.assertEqual(sql.count('INSERT INTO public.'), 2)
+        for table in ('ai_overviews', 'ai_references', 'organic_results'):
+            self.assertNotIn('INSERT INTO public.' + table, sql)
 
     def test_redirect_handler_refuses_redirects(self):
         self.assertTrue(issubclass(sr._NoRedirect, urllib.request.HTTPRedirectHandler))
@@ -279,14 +307,16 @@ class UploadSnapshotTests(unittest.TestCase):
         self.assertIsNone(handler.redirect_request(None, None, 302, "Found", {}, "https://evil.example/"))
 
     def test_http_error_does_not_leak_secrets(self):
+        body = io.BytesIO(b"pat-value sb_secret_abc")
         self.mock_open.side_effect = urllib.error.HTTPError(
-            "https://api.supabase.com", 401, "Unauthorized", {}, io.BytesIO(b"pat-value sb_secret_abc"))
+            "https://api.supabase.com", 401, "Unauthorized", {}, body)
         with self.assertRaises(sr.UploadError) as ctx:
             sr.upload_snapshot(snapshot(), "abcdefghij0123456789", "pat-value")
         message = str(ctx.exception)
         self.assertNotIn("pat-value", message)
         self.assertNotIn("sb_secret_", message)
         self.assertIsNone(ctx.exception.__cause__)
+        self.assertTrue(body.closed)
 
     def test_network_failure_is_generic(self):
         self.mock_open.side_effect = urllib.error.URLError("boom pat-value")

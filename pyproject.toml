@@ -10,8 +10,10 @@ requires-python = ">=3.11"
 dependencies = ["beautifulsoup4>=4.12,<5", "playwright>=1.45,<2"]
 
 [project.scripts]
-google-aio = "aio_scraper:main"
-google-aio-supabase = "run_supabase_batch:main"
+google-aio = "run_supabase_batch:main"
+google-aio-compare = "compare_serpapi:main"
+google-aio-export = "search_export:main"
+google-aio-sql = "comparison_storage:main"
 
 [tool.setuptools]
-py-modules = ["aio_scraper", "supabase_results", "run_supabase_batch"]
+py-modules = ["aio_scraper", "supabase_results", "run_supabase_batch", "serpapi_client", "compare_serpapi", "search_export", "comparison_storage", "response_sql"]

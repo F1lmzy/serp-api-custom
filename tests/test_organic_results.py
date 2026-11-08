@@ -1,8 +1,4 @@
-import contextlib
-import csv
-import io
 import unittest
-from unittest.mock import patch
 
 import aio_scraper
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -69,7 +65,7 @@ class OrganicResultsTests(unittest.TestCase):
             {"position": 2, "title": "Second result", "link": "https://second.example/b", "snippet": "Second snippet."},
         ])
 
-    def test_preserves_opaque_goto_links_in_ranked_organic_and_csv_rows(self):
+    def test_preserves_opaque_goto_links_in_ranked_organic_json(self):
         html = '''<div id="search"><div id="rso">
           <div class="MjjYud"><a href="/goto?url=CAESfirst&amp;source=web">
             <h3>First result</h3></a><div class="VwiC3b">First snippet.</div></div>
@@ -84,9 +80,6 @@ class OrganicResultsTests(unittest.TestCase):
             {"position": 2, "title": "Second result", "link": "https://second.example/", "snippet": ""},
             {"position": 3, "title": "Third result", "link": "https://www.google.com/goto?url=CAESthird", "snippet": ""},
         ])
-        rows = aio_scraper._csv_rows(result, "P01")
-        self.assertEqual([row["Type"] for row in rows], ["organic"] * 3)
-        self.assertEqual(rows[0]["Link"], result["organic_results"][0]["link"])
 
     def test_goto_support_does_not_admit_unsafe_or_internal_google_links(self):
         for raw in ("javascript:alert(1)", "data:text/html,x", "/search?q=x",
@@ -118,70 +111,3 @@ class NavigationDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
                                                timeout_ms=15000)
         with self.assertRaisesRegex(aio_scraper.ScrapeError, "navigation.*15000ms.*GOOGLE_AIO_BROWSER=firefox"):
             await scraper._search_once(Page(), "https://www.google.com/search?q=test", "test", "en", "us")
-
-
-class CsvOutputTests(unittest.TestCase):
-    def test_batch_writes_header_ordered_rows_and_query_ids_even_on_errors(self):
-        class FakeScraper:
-            def __init__(self, **kwargs):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                pass
-
-            async def search(self, query, hl, gl):
-                if query == "bad":
-                    raise aio_scraper.ScrapeError("failed")
-                return {
-                    "search_parameters": {"engine": "google", "q": query, "hl": hl, "gl": gl},
-                    "ai_overview": {
-                        "text_blocks": [
-                            {"type": "heading", "snippet": "Head"},
-                            {"type": "list", "list": [
-                                {"snippet": "First item", "reference_indexes": [0]},
-                                {"snippet": "Second item"},
-                            ]},
-                        ],
-                        "references": [{"index": 0, "title": "Source", "link": "https://source.example/", "source": "Publisher"}],
-                    },
-                    "organic_results": [
-                        {"position": 1, "title": "First", "link": "https://first.example/", "snippet": "One"},
-                        {"position": 2, "title": "Second", "link": "https://second.example/", "snippet": "Two"},
-                    ],
-                } if query == "good" else {
-                    "search_parameters": {"engine": "google", "q": query, "hl": hl, "gl": gl},
-                    "organic_results": [{"position": 1, "title": "Only", "link": "https://only.example/", "snippet": "Text"}],
-                }
-
-        output = io.StringIO()
-        with patch.object(aio_scraper, "GoogleAIOScraper", FakeScraper), contextlib.redirect_stderr(io.StringIO()):
-            status = __import__("asyncio").run(aio_scraper._run_batch(["good", "plain", "bad"], "en", "us", 1000, 0, output))
-        rows = list(csv.DictReader(io.StringIO(output.getvalue())))
-        self.assertEqual(status, 1)
-        self.assertEqual(list(rows[0])[0], "Query")
-        self.assertEqual([row["Query"] for row in rows], ["P01"] * 6 + ["P02", "P03"])
-        self.assertEqual([row["Type"] for row in rows],
-                         ["aio_heading", "aio_list_item", "aio_list_item", "aio_reference", "organic", "organic", "organic", "error"])
-        self.assertEqual([row["Position"] for row in rows], ["1", "2.1", "2.2", "1", "1", "2", "1", ""])
-        self.assertEqual(rows[1]["Reference Indexes"], "0")
-        self.assertEqual(rows[5]["Link"], "https://second.example/")
-        self.assertEqual(rows[7]["Error Code"], "SCRAPE_ERROR")
-        self.assertEqual(rows[7]["Search Query"], "bad")
-
-    def test_csv_escapes_spreadsheet_formulas_from_search_content(self):
-        result = {"search_parameters": {"q": "=1+1", "hl": "en", "gl": "us"},
-                  "organic_results": [{"position": 1, "title": "+SUM(1,2)",
-                                       "link": "https://example.com/", "snippet": "@cmd"}]}
-        row = aio_scraper._csv_rows(result, "P01")[0]
-        self.assertEqual(row["Search Query"], "'=1+1")
-        self.assertEqual(row["Title"], "'+SUM(1,2)")
-        self.assertEqual(row["Snippet"], "'@cmd")
-
-    def test_empty_serp_still_has_a_query_row(self):
-        rows = aio_scraper._csv_rows({"search_parameters": {"q": "empty", "hl": "en", "gl": "us"}}, "P01")
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["Query"], "P01")
-        self.assertEqual(rows[0]["Type"], "no_results")

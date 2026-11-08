@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import argparse
 import asyncio
-import csv
+from datetime import datetime, timezone
 import json
 import os
-import random
 import re
 import sys
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Comment, Tag
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 
@@ -28,8 +26,8 @@ _ENV_LOADED = False
 def _load_env_file() -> None:
     """Populate os.environ from a .env file next to this module.
 
-    Real exported variables win over .env values, so callers can still
-    override anything on the command line.
+    Exported variables win over .env values. Duplicate file entries use the
+    last value, so replacing a credential does not retain an earlier entry.
     """
     global _ENV_LOADED
     if _ENV_LOADED:
@@ -42,6 +40,7 @@ def _load_env_file() -> None:
         lines = env_path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
         raise ScrapeError(f"Could not read .env file at {env_path}") from exc
+    file_values = {}
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -53,8 +52,10 @@ def _load_env_file() -> None:
             continue
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+        if key:
+            file_values[key] = value
+    for key, value in file_values.items():
+        os.environ.setdefault(key, value)
 
 
 GOOGLE = "https://www.google.com"
@@ -132,8 +133,31 @@ def _organic_results(results_page: Tag) -> list[dict]:
         if not link or not title:
             continue
         snippet_node = card.select_one(".VwiC3b, .IsZvec, .yXK7lf")
-        results.append({"position": len(results) + 1, "title": title, "link": link,
-                        "snippet": _visible_text(snippet_node) if snippet_node else ""})
+        item = {"position": len(results) + 1, "title": title, "link": link,
+                "snippet": _visible_text(snippet_node) if snippet_node else ""}
+        for field, selector in (("source", ".VuuXrf"), ("displayed_link", "cite"),
+                                ("date", "time, [data-date], .LEwnzc"),
+                                ("author", '[rel="author"], [itemprop="author"]')):
+            node = card.select_one(selector)
+            if node is not None and _visible_text(node):
+                item[field] = _visible_text(node)
+        if snippet_node:
+            highlights = [_visible_text(node) for node in snippet_node.select("em") if _visible_text(node)]
+            if highlights:
+                item["snippet_highlighted_words"] = highlights
+        sitelinks = []
+        for node in card.select('[data-sitelinks] a[href], .sitelinks a[href], .HiHjCd a[href]'):
+            destination = _organic_url(node["href"])
+            label = _visible_text(node)
+            if destination and label and node is not anchor:
+                sitelinks.append({"title": label, "link": destination})
+        if sitelinks:
+            item["sitelinks"] = {"inline": sitelinks}
+        extensions = [_visible_text(node) for node in card.select('[data-rich-snippet], [itemprop="aggregateRating"]')
+                      if _visible_text(node)]
+        if extensions:
+            item["rich_snippet"] = {"top": {"extensions": extensions}}
+        results.append(item)
     return results
 
 
@@ -160,28 +184,208 @@ def _reference_indexes(node: Tag, by_href: dict[str, int]) -> list[int]:
     return indexes
 
 
+def _text_payload(node: Tag, by_href: dict[str, int]) -> dict:
+    payload = {"snippet": _visible_text(node)}
+    indexes = _reference_indexes(node, by_href)
+    if indexes:
+        payload["reference_indexes"] = indexes
+    links = []
+    for anchor in node.select("a[href]"):
+        link = _safe_reference_url(anchor["href"])
+        if link:
+            entry = {"link": link}
+            text = _visible_text(anchor)
+            if text:
+                entry = {"text": text, **entry}
+            if entry not in links:
+                links.append(entry)
+    if links:
+        payload["snippet_links"] = links
+    return payload
+
+
+def _is_hidden(node: Tag) -> bool:
+    # Browser snapshots annotate computed CSS visibility with `hidden` as well.
+    return any(parent.has_attr("hidden") or parent.get("aria-hidden") == "true"
+               or re.search(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse))\s*(?:!important\s*)?(?:;|$)",
+                            parent.get("style", ""), re.I)
+               for parent in (node, *node.parents))
+
+
+def _content_copy(node: Tag) -> Tag:
+    clone = BeautifulSoup(str(node), "html.parser")
+    for hidden in list(clone.select('[hidden], [aria-hidden="true"], [data-ignore-copy], script, style, button, [role="button"], [data-src-id], [jsname="lGsj1"], [jsname="L1sC6e"]')):
+        if hidden.parent is not None:
+            hidden.decompose()
+    for styled in list(clone.select('[style]')):
+        if styled.parent is not None and _is_hidden(styled):
+            styled.decompose()
+    return clone
+
+
 def _list_block(list_node: Tag, by_href: dict[str, int]) -> dict | None:
     items = []
-    for item in list_node.find_all("li", recursive=True):
-        snippet = _visible_text(item)
-        if not snippet:
+    # Google can wrap each <li> in a <div>. Select items owned by this
+    # list, rather than only immediate children or items in nested lists.
+    for item in list_node.find_all("li"):
+        if item.find_parent(["ul", "ol"]) is not list_node:
             continue
-        block_item = {"snippet": snippet}
-        indexes = _reference_indexes(item, by_href)
-        if indexes:
-            block_item["reference_indexes"] = indexes
-        items.append(block_item)
+        if item.has_attr("hidden") or item.get("aria-hidden") == "true":
+            continue
+        clone = _content_copy(item)
+        for nested in reversed(clone.find_all(["ul", "ol"])):
+            nested.decompose()
+        block_item = _text_payload(clone, by_href)
+        nested_items = []
+        for nested in item.find_all(["ul", "ol"]):
+            if nested.find_parent("li") is item:
+                block = _list_block(nested, by_href)
+                if block:
+                    nested_items.extend(block["list"])
+        if nested_items:
+            block_item["list"] = nested_items
+        if block_item["snippet"] or nested_items:
+            items.append(block_item)
     return {"type": "list", "list": items} if items else None
 
 
+def _table_block(table_node: Tag, by_href: dict[str, int]) -> dict | None:
+    detailed = []
+    for row in table_node.find_all("tr"):
+        if (row.find_parent("table") is not table_node
+                or row.has_attr("hidden") or row.get("aria-hidden") == "true"):
+            continue
+        cells = []
+        for cell in row.find_all(["th", "td"], recursive=False):
+            if cell.has_attr("hidden") or cell.get("aria-hidden") == "true":
+                continue
+            payload = _text_payload(_content_copy(cell), by_href)
+            for attr in ("rowspan", "colspan"):
+                if cell.has_attr(attr):
+                    payload[attr] = cell[attr]
+            cells.append(payload)
+        if cells:
+            detailed.append(cells)
+    if not detailed:
+        return None
+    block = {"type": "table", "table": [[cell["snippet"] for cell in row] for row in detailed],
+             "detailed": detailed}
+    caption = table_node.find("caption", recursive=False)
+    if caption and _visible_text(caption):
+        block.update(_text_payload(_content_copy(caption), by_href))
+    return block
+
+
+def _answer_blocks(answer: Tag, by_href: dict[str, int]) -> list[dict]:
+    """Traverse wrappers and mixed text once, preserving semantic boundaries."""
+    blocks = []
+    followup_prefix = "If you'd like, I can share information about:"
+
+    def walk(node):
+        pending = []
+
+        def flush():
+            if pending:
+                fragment = BeautifulSoup("".join(pending), "html.parser")
+                payload = _text_payload(fragment, by_href)
+                if payload["snippet"]:
+                    blocks.append({"type": "paragraph", **payload})
+                pending.clear()
+
+        for child in node.children:
+            if isinstance(child, Comment):
+                continue
+            if not isinstance(child, Tag):
+                pending.append(str(child))
+                continue
+            if (child.has_attr("hidden") or child.get("aria-hidden") == "true"
+                    or child.name in ("script", "style", "button") or child.get("role") == "button"
+                    or child.has_attr("data-src-id") or child.get("jsname") in ("lGsj1", "L1sC6e")
+                    or _clean(child.get_text(" ", strip=True)).startswith(followup_prefix)):
+                continue
+            heading = child.name in ("h1", "h2", "h3", "h4", "h5", "h6") or child.get("role") == "heading"
+            if heading or child.name == "p":
+                flush()
+                payload = _text_payload(_content_copy(child), by_href)
+                if payload["snippet"]:
+                    blocks.append({"type": "heading" if heading else "paragraph", **payload})
+            elif child.name in ("ul", "ol", "table"):
+                flush()
+                block = _table_block(child, by_href) if child.name == "table" else _list_block(child, by_href)
+                if block:
+                    blocks.append(block)
+            elif (child.name in ("div", "section", "article")
+                  or child.select_one('p, ul, ol, table, h1, h2, h3, h4, h5, h6, [role="heading"]')):
+                flush()
+                walk(child)
+            else:
+                pending.append(str(_content_copy(child)))
+        flush()
+
+    walk(_content_copy(answer))
+    return blocks
+
+
 def _visible_text(node: Tag) -> str:
-    clone = BeautifulSoup(str(node), "html.parser")
-    for hidden in clone.select('[hidden], [aria-hidden="true"], script, style, button, [role="button"], [data-src-id]'):
-        hidden.decompose()
-    for fallback in clone.select('[jsname="lGsj1"], [jsname="L1sC6e"]'):
-        fallback.decompose()
-    text = _clean(clone.get_text(" ", strip=True))
+    if _is_hidden(node):
+        return ""
+    text = _clean(_content_copy(node).get_text(" ", strip=True))
     return "" if NOISE.fullmatch(text) else text
+
+
+def _aio_state(container: Tag | None) -> tuple[str, Tag | None, str | None]:
+    """One completion classifier shared by polling and saved-HTML parsing."""
+    if container is None:
+        return "absent", None, None
+    if _is_hidden(container):
+        return "unresolved", None, "render_incomplete"
+    if any(not _is_hidden(node) for node in container.select(
+            '[role="progressbar"][aria-label="Generating"], [aria-busy="true"]')):
+        return "unresolved", None, "generation_in_progress"
+    answer = (container.select_one('[data-subtree="aimc"] [jsname="KFl8ub"]')
+              or container.select_one('[data-subtree="aimfl,mfl"]')
+              or container.select_one('[data-subtree="aimc"]'))
+    if answer is not None and _visible_text(answer):
+        return "present", answer, None
+    notices = [_clean(node.get_text(" ", strip=True)) for node in container.select(
+        '[jsname="lGsj1"], [jsname="L1sC6e"]') if not _is_hidden(node)]
+    notices.append(_clean(_content_copy(container).get_text(" ", strip=True)))
+    for notice in notices:
+        if NOISE.fullmatch(notice):
+            if notice.lower().startswith("can't generate"):
+                return "unresolved", None, "generation_failed"
+            return "unavailable", None, None
+    return "unresolved", None, "render_incomplete"
+
+
+async def _rendered_html(page, *, aio_only: bool = False) -> str:
+    """Serialize a clone, recording computed AIO visibility without changing the page.
+
+    This preserves stylesheet-based visibility for offline parsing/evidence too.
+    """
+    return await page.evaluate("""(aioOnly) => {
+        const root = aioOnly ? document.querySelector('#eKIzJc') : document.documentElement;
+        if (!root) return '';
+        const clone = root.cloneNode(true);
+        const elements = r => r.id === 'eKIzJc'
+            ? [r, ...r.querySelectorAll('*')]
+            : [...r.querySelectorAll('#eKIzJc, #eKIzJc *')];
+        const originals = elements(root), copies = elements(clone);
+        originals.forEach((element, i) => {
+            const style = getComputedStyle(element);
+            if (style.display === 'none' || ['hidden', 'collapse'].includes(style.visibility))
+                copies[i].setAttribute('hidden', '');
+            if (element.id === 'eKIzJc') {
+                for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+                    const ancestor = getComputedStyle(parent);
+                    if (parent.hidden || parent.getAttribute('aria-hidden') === 'true'
+                        || ancestor.display === 'none' || ancestor.visibility === 'hidden')
+                        copies[i].setAttribute('hidden', '');
+                }
+            }
+        });
+        return clone.outerHTML;
+    }""", aio_only)
 
 
 def parse_search_html(html: str, query: str, hl: str, gl: str) -> dict:
@@ -195,8 +399,10 @@ def parse_search_html(html: str, query: str, hl: str, gl: str) -> dict:
     if results_page is None:
         raise ScrapeError("Google returned an incomplete page, not a search results page")
 
-    response = {"search_parameters": {"engine": "google", "q": query, "hl": hl, "gl": gl}}
+    response = {"search_parameters": {"engine": "google", "q": query, "hl": hl, "gl": gl},
+                "extraction_metadata": {"aio_status": "absent"}}
     organic = _organic_results(results_page)
+    response["extraction_metadata"]["organic_count"] = len(organic)
     if organic:
         response["organic_results"] = organic
     else:
@@ -209,21 +415,11 @@ def parse_search_html(html: str, query: str, hl: str, gl: str) -> dict:
     container = soup.select_one("#eKIzJc")
     if container is None:
         return response
-    # Google may split the first answer sentence into a fragment span and siblings.
-    # Prefer the enclosing answer group when Google emits it.
-    rendered_group = container.select_one('[data-subtree="aimc"]')
-    answer = (container.select_one('[data-subtree="aimc"] [jsname="KFl8ub"]')
-              or container.select_one('[data-subtree="aimfl,mfl"]')
-              or rendered_group)
-    if answer is None or not _visible_text(answer):
-        # Two benign shapes land here: (a) Google's explicit "not available"
-        # message for sensitive topics, and (b) a container shell whose answer
-        # never streamed in. Both mean no AIO to report, not a scrape failure.
-        note = container.get_text(" ", strip=True)[:120]
-        if "not available" in note.lower():
-            print(f"[parser] Google states no AI Overview for this query", file=sys.stderr)
-        else:
-            print(f"[parser] AIO container present but answer never rendered; treating as no-AIO (container text: {note!r})", file=sys.stderr)
+    status, answer, reason = _aio_state(container)
+    if status != "present":
+        response["extraction_metadata"]["aio_status"] = status
+        if reason:
+            response["extraction_metadata"]["aio_reason"] = reason
         return response
 
     cards: list[dict] = []
@@ -245,82 +441,15 @@ def parse_search_html(html: str, query: str, hl: str, gl: str) -> dict:
             continue
         aria = anchor.get("aria-label", "")
         by_href[key] = len(cards)
-        cards.append({"index": len(cards), "title": title, "link": link,
-                      "source": _source_name(title, aria, link)})
+        reference = {"index": len(cards), "title": title, "link": link,
+                     "source": _source_name(title, aria, link)}
+        snippet_node = card.select_one('.VwiC3b, .IsZvec, .yXK7lf, [data-snippet]')
+        if snippet_node and _visible_text(snippet_node):
+            reference["snippet"] = _visible_text(snippet_node)
+        cards.append(reference)
 
-    blocks: list[dict] = []
-    # Current Google markup has no <p> for its opening answer. Read KFl8ub's
-    # direct children in order so the opening text, headings, and lists survive.
-    if rendered_group is not None and answer.get("jsname") == "KFl8ub":
-        direct_nodes = [node for node in answer.find_all(recursive=False) if isinstance(node, Tag)]
-        # Google appends a follow-up prompt after the answer. Only the English
-        # prompt text is recognized; other locales are a documented limitation.
-        followup_prefix = "If you'd like, I can share information about:"
-        for node in direct_nodes:
-            if not isinstance(node, Tag):
-                continue
-            if followup_prefix in node.get_text(" ", strip=True):
-                continue
-            text = _visible_text(node)
-            if not text:
-                continue
-            heading = node if node.get("role") == "heading" or node.name in ("h1", "h2", "h3") else node.select_one('[role="heading"], h1, h2, h3')
-            if heading is not None and _visible_text(heading) == text:
-                blocks.append({"type": "heading", "snippet": text})
-                continue
-            list_node = node if node.name in ("ul", "ol") else node.find(["ul", "ol"])
-            if list_node is not None:
-                list_block = _list_block(list_node, by_href)
-                if list_block:
-                    blocks.append(list_block)
-                continue
-            # Remove source chips from answer text; their link anchors remain
-            # available for unambiguous citation-index mapping.
-            answer_text = _visible_text(node)
-            chip_texts = [_clean(button.get_text(" ", strip=True)) for button in node.select('button[aria-label*="Related results"]')]
-            for chip in chip_texts:
-                if chip:
-                    answer_text = answer_text.replace(chip, " ").strip()
-            if answer_text:
-                block = {"type": "paragraph", "snippet": answer_text}
-                indexes = _reference_indexes(node, by_href)
-                if indexes:
-                    block["reference_indexes"] = indexes
-                blocks.append(block)
-    else:
-        block_nodes = answer.select('h1, h2, h3, [role="heading"], p, li')
-        covered: set[int] = set()
-        for node in block_nodes:
-            text = _visible_text(node)
-            if not text:
-                continue
-            if node.name == "li":
-                parent_list = node.find_parent(["ul", "ol"])
-                if parent_list is not None:
-                    key = id(parent_list)
-                    if key in covered:
-                        continue
-                    covered.add(key)
-                    list_block = _list_block(parent_list, by_href)
-                    if list_block:
-                        blocks.append(list_block)
-                continue
-            kind = "heading" if node.name in ("h1", "h2", "h3") or node.get("role") == "heading" else "paragraph"
-            block = {"type": kind, "snippet": text}
-            ref_indexes = _reference_indexes(node, by_href)
-            if ref_indexes:
-                block["reference_indexes"] = ref_indexes
-            blocks.append(block)
-
-    # Generic Google markup may not use semantic elements. Keep its answer rather
-    # than silently returning an empty overview, but do not infer block structure.
-    if not blocks:
-        blocks = [{"type": "paragraph", "snippet": _visible_text(answer)}]
-        for anchor in answer.select("a[href]"):
-            index = by_href.get(_reference_key(anchor.get("href", "")))
-            if index is not None:
-                blocks[0].setdefault("reference_indexes", []).append(index)
-
+    blocks = _answer_blocks(answer, by_href)
+    response["extraction_metadata"]["aio_status"] = "present" if blocks else "empty"
     response["ai_overview"] = {"text_blocks": blocks, "references": cards}
     return response
 
@@ -659,14 +788,24 @@ async def _maybe_solve_challenge(page, page_url: str, html: str, timeout_ms: int
 
         # Wait for Google to process the token and land us back on /search.
         try:
-            await page.wait_for_url("**/search?*", timeout=timeout_ms)
+            # Match the actual destination, not /search inside a /sorry
+            # continue= parameter. The old glob accepted rejected tokens.
+            await page.wait_for_url(
+                lambda url: urlparse(url).hostname == "www.google.com"
+                and urlparse(url).path == "/search",
+                timeout=timeout_ms,
+            )
         except Exception:
             last_stay_url = page.url
             continue  # retry with a fresh token
 
         await page.wait_for_timeout(min(1500, timeout_ms // 4))
-        print(f"[captcha] landed on {page.url[:80]}", file=sys.stderr)
-        return await page.content()
+        html = await page.content()
+        if is_challenge_page(html):
+            last_stay_url = page.url
+            continue
+        print(f"[captcha] landed on {urlparse(page.url).path}", file=sys.stderr)
+        return html
 
     raise ChallengeDetected(
         last_error
@@ -754,20 +893,48 @@ class GoogleAIOScraper:
             if self._pw is not None:
                 await self._pw.stop()
 
-    async def _wait_for_aio_answer(self, page, max_wait_ms: int = 8000) -> bool:
-        """The AIO container shell can render before its answer streams in.
-        Poll briefly for the answer subtree so snapshots do not race the JS.
-        Returns True when an AIO container was present (filled or not)."""
-        if await page.query_selector("#eKIzJc") is None:
-            return False
-        deadline = time.monotonic() + max_wait_ms / 1000
+    async def _wait_for_aio_answer(self, page, max_wait_ms: int = 20000) -> bool:
+        """Wait for a real answer or visible refusal, never stable loading text.
+
+        Observe delayed containers for up to 8s; once seen, use the full budget.
+        Unfinished shells remain unresolved for the bounded reload/retry policy.
+        """
+        start = time.monotonic()
+        deadline = start + max_wait_ms / 1000
+        seen = False
+        status = "absent"
+        previous = None
+        unchanged_since = None
         while time.monotonic() < deadline:
-            answer = await page.query_selector('#eKIzJc [data-subtree]')
-            if answer and (await answer.inner_text()).strip():
+            soup = BeautifulSoup(await _rendered_html(page, aio_only=True), "html.parser")
+            container = soup.select_one("#eKIzJc")
+            seen = seen or container is not None
+            status, answer, reason = _aio_state(container)
+            now = time.monotonic()
+            if status == "absent":
+                if not seen and now - start >= min(8.0, max_wait_ms / 1000):
+                    return False
+            elif status == "unavailable" or reason == "generation_failed":
                 return True
+            if status == "present":
+                # Include semantic structure and citations, not only plain text.
+                key = str((_answer_blocks(answer, {}),
+                           [(card.get_text(" ", strip=True), [a.get("href") for a in card.select('a[href]')])
+                            for card in container.select('[data-src-id]') if not _is_hidden(card)]))
+                if key != previous:
+                    unchanged_since = now
+                elif unchanged_since is not None and now - unchanged_since >= 2.0:
+                    return True
+                previous = key
+            else:
+                previous = None
+                unchanged_since = None
             await page.wait_for_timeout(400)
-        print("[scrape] AIO answer did not stream within poll window", file=sys.stderr)
-        return True
+        if seen and status == "absent":
+            raise ScrapeError("AI Overview container disappeared before rendering completed")
+        if previous:
+            raise ScrapeError("AI Overview answer did not stabilize within the rendering window")
+        return seen
 
     async def search(self, query: str, hl: str = "en", gl: str = "us") -> dict:
         """Scrape one query with this session, including organic results."""
@@ -778,10 +945,11 @@ class GoogleAIOScraper:
             # A container rendered but its answer never streamed in. One
             # reload usually gets Google to serve the full AIO.
             print("[scrape] AIO shell seen but empty; retrying the query once", file=sys.stderr)
-            result = await self._search_once(page, url, query, hl, gl, poll_ms=12000)
+            result = await self._search_once(page, url, query, hl, gl, poll_ms=30000)
         return result
 
-    async def _search_once(self, page, url: str, query: str, hl: str, gl: str, poll_ms: int = 8000) -> dict:
+    async def _search_once(self, page, url: str, query: str, hl: str, gl: str, poll_ms: int = 20000) -> dict:
+        requested_at = datetime.now(timezone.utc).isoformat()
         stage = "navigation"
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_ms)
@@ -799,7 +967,7 @@ class GoogleAIOScraper:
                 except Exception:
                     pass
                 await page.wait_for_timeout(500)
-            html = await page.content()
+            html = await _rendered_html(page)
         except (ChallengeDetected, CaptchaSolverError):
             raise
         except Exception as exc:
@@ -810,7 +978,10 @@ class GoogleAIOScraper:
             else:
                 detail = f"Google search failed during {stage} ({type(exc).__name__})"
             raise ScrapeError(detail) from exc
-        return parse_search_html(html, query, hl, gl)
+        result = parse_search_html(html, query, hl, gl)
+        result["search_metadata"] = {"created_at": requested_at}
+        result["search_parameters"].update({"device": "desktop", "google_domain": "google.com"})
+        return result
 
 
 async def scrape(query: str, hl: str = "en", gl: str = "us", timeout_ms: int = 30000,
@@ -831,139 +1002,15 @@ def _read_query_file(path: str) -> list[str]:
     return queries
 
 
-CSV_FIELDS = ["Query", "Search Query", "HL", "GL", "Type", "Position", "Title",
-              "Link", "Snippet", "Source", "Reference Indexes", "Error Code", "Error Message"]
-
-
-def _csv_rows(result: dict, query_id: str) -> list[dict]:
-    params = result["search_parameters"]
-    base = {"Query": query_id, "Search Query": params["q"], "HL": params["hl"], "GL": params["gl"]}
-    rows = []
-    overview = result.get("ai_overview", {})
-    for position, block in enumerate(overview.get("text_blocks", []), 1):
-        if block["type"] == "list":
-            for item_index, item in enumerate(block["list"], 1):
-                rows.append({**base, "Type": "aio_list_item", "Position": f"{position}.{item_index}",
-                             "Snippet": item["snippet"],
-                             "Reference Indexes": ",".join(map(str, item.get("reference_indexes", [])))})
-        else:
-            rows.append({**base, "Type": f"aio_{block['type']}", "Position": position,
-                         "Snippet": block["snippet"],
-                         "Reference Indexes": ",".join(map(str, block.get("reference_indexes", [])))})
-    for reference in overview.get("references", []):
-        rows.append({**base, "Type": "aio_reference", "Position": reference["index"] + 1,
-                     "Title": reference["title"], "Link": reference["link"], "Source": reference["source"]})
-    for item in result.get("organic_results", []):
-        rows.append({**base, "Type": "organic", "Position": item["position"],
-                     "Title": item["title"], "Link": item["link"], "Snippet": item["snippet"]})
-    if "error" in result:
-        rows.append({**base, "Type": "error", "Error Code": result["error"]["code"],
-                     "Error Message": result["error"]["message"]})
-    rows = rows or [{**base, "Type": "no_results"}]
-    # Google text is untrusted; quoting a CSV field alone does not stop Excel
-    # from evaluating a leading formula when the CSV is opened in a spreadsheet.
-    for row in rows:
-        for field, value in row.items():
-            if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
-                row[field] = "'" + value
-    return rows
-
-
 def _error_result(code: str, message: str, query: str, hl: str, gl: str) -> dict:
     return {"search_parameters": {"engine": "google", "q": query, "hl": hl, "gl": gl},
             "error": {"code": code, "message": str(message)}}
 
 
-async def _run_batch(queries: list[str], hl: str, gl: str, timeout_ms: int, delay: float, out,
-                     proxy_mode: str | None = None) -> int:
-    started = time.monotonic()
-    ok = aio_found = errors = 0
-    writer = csv.DictWriter(out, fieldnames=CSV_FIELDS)
-    writer.writeheader()
-    try:
-        async with GoogleAIOScraper(timeout_ms=timeout_ms, proxy_mode=proxy_mode) as scraper:
-            for i, query in enumerate(queries):
-                try:
-                    result = await scraper.search(query, hl, gl)
-                except (ChallengeDetected, CaptchaSolverError) as exc:
-                    code = "CAPTCHA_REQUIRED" if isinstance(exc, ChallengeDetected) else "CAPTCHA_SOLVER_ERROR"
-                    result = _error_result(code, str(exc), query, hl, gl)
-                    errors += 1
-                except ScrapeError as exc:
-                    result = _error_result("SCRAPE_ERROR", str(exc), query, hl, gl)
-                    errors += 1
-                else:
-                    ok += 1
-                    if "ai_overview" in result:
-                        aio_found += 1
-                writer.writerows(_csv_rows(result, f"P{i + 1:02d}"))
-                out.flush()
-                if i < len(queries) - 1 and delay > 0:
-                    # Jitter so the pacing does not look machine-perfect.
-                    await asyncio.sleep(delay + random.uniform(0, min(2.0, delay)))
-    except (ScrapeError, ChallengeDetected, CaptchaSolverError) as exc:
-        if ok + errors < len(queries):
-            code = ("CAPTCHA_REQUIRED" if isinstance(exc, ChallengeDetected) else
-                    "CAPTCHA_SOLVER_ERROR" if isinstance(exc, CaptchaSolverError) else "SCRAPE_ERROR")
-            writer.writerows(_csv_rows(_error_result(code, str(exc), queries[ok + errors], hl, gl),
-                                       f"P{ok + errors + 1:02d}"))
-        else:
-            print(f"[batch] browser cleanup failed: {exc}", file=sys.stderr)
-        return 2
-    elapsed = time.monotonic() - started
-    print(f"[batch] {len(queries)} queries in {elapsed:.1f}s — ok: {ok} (with AIO: {aio_found}), errors: {errors}", file=sys.stderr)
-    return 0 if errors == 0 else 1
-
-
-def main() -> int:
-    try:
-        _load_env_file()
-    except ScrapeError as exc:
-        print(json.dumps({"error": {"code": "ENV_ERROR", "message": str(exc)}}))
-        return 2
-    parser = argparse.ArgumentParser(description="Scrape Google AI Overviews and organic results to CSV")
-    parser.add_argument("query", nargs="?", help="Single query (omit when using --queries)")
-    parser.add_argument("--queries", help="File with one query per line (# comments and blank lines ignored)")
-    parser.add_argument("--out", help="CSV output file (default: stdout)")
-    parser.add_argument("--delay", type=float, default=2.0,
-                        help="Seconds between batch queries, plus 0-2s jitter (default: 2.0)")
-    parser.add_argument("--hl", default="en")
-    parser.add_argument("--gl", default="us")
-    parser.add_argument("--timeout", type=int, default=30000, help="Navigation timeout in milliseconds")
-    parser.add_argument("--proxy", choices=("direct", "dataimpulse"),
-                        help="Connection mode; overrides GOOGLE_AIO_PROXY (default: direct)")
-    args = parser.parse_args()
-    try:
-        if args.queries:
-            if args.query:
-                parser.error("pass either a single query or --queries, not both")
-            queries = _read_query_file(args.queries)
-            if not queries:
-                print(json.dumps({"error": {"code": "USAGE_ERROR", "message": f"no queries found in {args.queries}"}}))
-                return 2
-            if args.out:
-                with open(args.out, "w", encoding="utf-8", newline="") as out:
-                    return asyncio.run(_run_batch(queries, args.hl, args.gl, args.timeout, args.delay, out, proxy_mode=args.proxy))
-            return asyncio.run(_run_batch(queries, args.hl, args.gl, args.timeout, args.delay, sys.stdout, proxy_mode=args.proxy))
-        if not args.query:
-            parser.error("a query is required (or pass --queries FILE for batch mode)")
-        result = asyncio.run(scrape(args.query, args.hl, args.gl, args.timeout, proxy_mode=args.proxy))
-        code = 0
-    except (ScrapeError, ChallengeDetected, CaptchaSolverError) as exc:
-        error_code = ("CAPTCHA_REQUIRED" if isinstance(exc, ChallengeDetected) else
-                      "CAPTCHA_SOLVER_ERROR" if isinstance(exc, CaptchaSolverError) else "SCRAPE_ERROR")
-        result = _error_result(error_code, str(exc), args.query, args.hl, args.gl)
-        code = 2 if isinstance(exc, ScrapeError) else 3
-    if args.out:
-        with open(args.out, "w", encoding="utf-8", newline="") as out:
-            writer = csv.DictWriter(out, fieldnames=CSV_FIELDS)
-            writer.writeheader()
-            writer.writerows(_csv_rows(result, "P01"))
-    else:
-        writer = csv.DictWriter(sys.stdout, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        writer.writerows(_csv_rows(result, "P01"))
-    return code
+def main(argv=None) -> int:
+    """Use the same JSON capture controller as the installed command."""
+    from run_supabase_batch import main as capture_main
+    return capture_main(argv)
 
 
 if __name__ == "__main__":

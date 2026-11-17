@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Search Archive · Response viewer</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to saved results</a>
+  <header class="app-header">
+    <button id="archive-toggle" type="button" aria-controls="archive-sidebar" aria-expanded="true">Hide archive</button>
+    <a class="brand" href="/" aria-label="Search Archive home"><span class="brand-icon">S</span>Search Archive</a>
+    <span class="header-note">SUPABASE RESPONSE VIEWER <span class="read-only">Read only</span></span>
+  </header>
+  <div class="workspace">
+    <button id="archive-backdrop" class="archive-backdrop" aria-label="Close archive navigation" hidden></button>
+    <aside id="archive-sidebar" class="sidebar" aria-label="Stored responses">
+      <div class="sidebar-controls">
+        <div class="eyebrow">YOUR DATASET</div>
+        <label for="run">Capture run</label>
+        <select id="run"><option>Loading runs…</option></select>
+        <div class="pagination run-pagination"><button id="runs-prev" disabled aria-label="Previous runs">←</button><span id="run-page">Recent runs</span><button id="runs-next" disabled aria-label="More runs">→</button></div>
+        <form id="search-form" role="search">
+          <label for="search">Find a query</label>
+          <div class="search-control"><input id="search" type="search" placeholder="Search stored query text…" maxlength="300"><button type="submit" aria-label="Search queries">⌕</button></div>
+          <label class="filter-label" for="filter-aio">AI Overview</label>
+          <select id="filter-aio" name="aio_status"><option value="">All AIO statuses</option><option value="present">Present</option><option value="absent">Absent</option><option value="not_present">Not marked present (includes failures)</option><option value="unavailable">Unavailable</option><option value="empty">Empty</option><option value="unresolved">Unresolved</option><option value="invalid">Invalid</option><option value="error">Error</option><option value="unknown">Unknown / legacy</option></select>
+          <details class="filter-details"><summary>More filters</summary><div class="filter-grid">
+            <div class="filter-wide"><label for="filter-capture">Capture status</label><select id="filter-capture" name="capture_status"><option value="">All capture statuses</option><option value="ok">OK</option><option value="error">Error</option><option value="unresolved">Unresolved</option><option value="unknown">Unknown / legacy</option></select></div>
+            <div><label for="filter-hl">Language (hl)</label><input id="filter-hl" name="hl" placeholder="e.g. en" maxlength="64"></div>
+            <div><label for="filter-gl">Country (gl)</label><input id="filter-gl" name="gl" placeholder="e.g. us" maxlength="64"></div>
+            <div class="filter-wide"><label for="filter-device">Device</label><input id="filter-device" name="device" placeholder="e.g. desktop or mobile" maxlength="64"></div>
+            <div class="filter-wide"><label for="filter-from">Captured from (UTC)</label><input id="filter-from" name="captured_from" type="date"></div>
+            <div class="filter-wide"><label for="filter-to">Captured through (UTC)</label><input id="filter-to" name="captured_to" type="date"></div>
+            <div><label for="filter-warnings">Warnings</label><select id="filter-warnings" name="has_warnings"><option value="">Any</option><option value="yes">Has warnings</option><option value="no">No warnings</option></select></div>
+            <div><label for="filter-organic">Organic results</label><select id="filter-organic" name="has_organic"><option value="">Any</option><option value="yes">Has results</option><option value="no">No results</option></select></div>
+          </div><p class="filter-hint">Exact stored codes/device. Dates include the entire UTC day.</p></details>
+          <div class="filter-actions"><button type="submit">Apply filters</button><button id="filters-clear" type="button">Clear all</button></div>
+        </form>
+        <p id="list-status" class="muted" role="status"></p>
+      </div>
+      <div id="records" class="records"></div>
+      <div class="pagination"><button id="prev" disabled>← Previous</button><span id="page"></span><button id="next" disabled>Next →</button></div>
+    </aside>
+    <main id="main" aria-busy="false" tabindex="-1">
+      <div id="notice" role="status" class="notice" hidden></div>
+      <div id="welcome" class="welcome"><span class="welcome-icon">⌕</span><h1>Your searches, reconstructed.</h1><p>Select a stored response to explore its AI Overview,<br>citations, and organic search results.</p><span class="muted">Saved data only · No new searches or API credits</span></div>
+      <article id="response" hidden>
+        <header class="response-header"><div class="eyebrow">SAVED SEARCH RESPONSE</div><h1 id="query-title"></h1><div id="metadata" class="metadata"></div></header>
+        <div class="tabs" role="tablist" aria-label="Response view"><button id="preview-tab" role="tab" aria-selected="true" aria-controls="preview">Search preview</button><button id="json-tab" role="tab" aria-selected="false" aria-controls="json-panel" tabindex="-1">Raw JSON</button></div>
+        <section id="preview" role="tabpanel" aria-labelledby="preview-tab">
+          <div class="preview-toolbar"><p class="archive-note">Saved reconstruction · not a live Google page</p><div><button id="compare-open" class="text-button">Compare runs</button><button id="aio-json" class="text-button">AIO JSON</button><button id="organic-json" class="text-button">Results JSON</button></div></div>
+          <div id="aio-state" class="capture-diagnostics" role="status"></div>
+          <div class="results-surface">
+            <section class="aio" aria-labelledby="aio-title"><div class="section-heading"><h2 id="aio-title"><span class="sparkle" aria-hidden="true">✦</span>AI Overview</h2><button id="mobile-sources" class="mobile-sources" type="button" aria-haspopup="dialog">Sources</button></div><div class="aio-layout"><div id="aio-content" class="aio-content"></div><aside id="sources" aria-label="AI Overview sources"></aside></div></section>
+            <section class="organic" aria-labelledby="organic-title"><h2 id="organic-title" class="visually-hidden">Search results</h2><div id="organic-results"></div></section>
+          </div>
+        </section>
+        <section id="json-panel" role="tabpanel" aria-labelledby="json-tab" hidden><div class="json-toolbar"><label for="json-scope">JSON entry</label><select id="json-scope"><option value="response">Complete response row</option><option value="aio_response">aio_response</option><option value="organic_results">organic_results</option></select><button id="copy-json">Copy JSON</button></div><pre id="json-content" tabindex="0"></pre><p id="copy-status" role="status" class="muted"></p></section>
+      </article>
+      <section id="comparison" class="comparison" aria-labelledby="comparison-title" hidden>
+        <header class="comparison-header"><div><div class="eyebrow">RUN COMPARISON · SAVED DATA ONLY</div><h1 id="comparison-title">Compare the same query</h1><p id="comparison-query" class="comparison-query"></p></div><button id="compare-close" type="button">← Back to response</button></header>
+        <div class="comparison-controls">
+          <div><label for="compare-run">Compare selected response with run</label><select id="compare-run"></select><div class="pagination"><button id="compare-runs-prev" type="button" aria-label="Previous comparison runs">←</button><span id="compare-run-page"></span><button id="compare-runs-next" type="button" aria-label="More comparison runs">→</button></div></div>
+          <button id="compare-load" type="button">Find matching query</button>
+          <p class="comparison-hint">Matches exact query text, language and country, even when query IDs differ. Device may differ. Archive filters apply only to the left-hand selection.</p>
+        </div>
+        <p id="compare-status" role="status" class="muted"></p>
+        <div id="compare-match-controls" class="comparison-matches" hidden><label for="compare-match">Matching capture in the other run</label><select id="compare-match"></select><div class="pagination"><button id="compare-matches-prev" type="button">← Previous matches</button><span id="compare-match-page"></span><button id="compare-matches-next" type="button">More matches →</button></div></div>
+        <div id="compare-summary" class="comparison-summary" hidden></div>
+        <div id="compare-panes" class="comparison-panes"></div>
+      </section>
+    </main>
+  </div>
+  <dialog id="sources-dialog" aria-labelledby="sources-dialog-title"><div class="dialog-header"><h2 id="sources-dialog-title">Saved sources</h2><button id="sources-close" type="button" aria-label="Close saved sources">Close</button></div><p id="sources-dialog-note" class="dialog-note"></p><div id="sources-dialog-content"></div></dialog>
+</body>
+</html>

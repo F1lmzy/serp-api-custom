@@ -12,3 +12,8 @@ query_test/
 .DS_Store
 .codegraph/
 .pi/
+node_modules/
+.wrangler/
+.worker-build/
+.dev.vars
+.dev.vars.*

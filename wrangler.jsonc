@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "search-archive",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-17",
+  "workers_dev": false,
+  "preview_urls": false,
+  "keep_vars": true,
+  "observability": { "enabled": false },
+  "assets": {
+    "directory": "./aio_viewer/static",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  }
+  // No routes here: attach your custom domain in the Cloudflare dashboard only
+  // AFTER creating its Access application. Dashboard routes persist on deploy.
+  // Set runtime variables/secrets in Worker Settings > Variables & Secrets.
+  // See docs/cloudflare-workers.md. There is no authentication bypass/dev flag.
+}

@@ -1,0 +1,23 @@
+{
+  "name": "search-archive-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node --check worker/index.js && node --check worker/api.js && node --check worker/auth.js && node --check aio_viewer/static/app.js",
+    "test": "node --test worker/test/*.test.js",
+    "build": "wrangler deploy --dry-run --outdir .worker-build",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "jose": "^6.1.0"
+  },
+  "devDependencies": {
+    "miniflare": "5.20261117.0-beta",
+    "wrangler": "^4.0.0"
+  }
+}

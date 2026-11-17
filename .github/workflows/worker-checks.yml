@@ -1,0 +1,40 @@
+name: Worker checks
+
+on:
+  push:
+    paths:
+      - "worker/**"
+      - "aio_viewer/static/**"
+      - "package*.json"
+      - "wrangler.jsonc"
+      - ".node-version"
+      - ".github/workflows/worker-checks.yml"
+  pull_request:
+    paths:
+      - "worker/**"
+      - "aio_viewer/static/**"
+      - "package*.json"
+      - "wrangler.jsonc"
+      - ".node-version"
+      - ".github/workflows/worker-checks.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build

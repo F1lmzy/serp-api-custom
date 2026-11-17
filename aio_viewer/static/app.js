@@ -234,8 +234,8 @@ function renderResponse(row) {
   $("response").hidden = false;
   $("query-title").textContent = row.query;
   $("metadata").replaceChildren();
-  for (const value of [state.run?.provider, row.query_id, date(row.captured_at), [row.hl, row.gl].filter(Boolean).join(" / "), `Capture: ${row.capture_status || row.status || "unknown"}`]) {
-    if (value) $("metadata").append(element("span", "metadata-item", value));
+  for (const [index, value] of [state.run?.provider, row.query_id, date(row.captured_at), [row.hl, row.gl].filter(Boolean).join(" / "), `Capture: ${row.capture_status || row.status || "unknown"}`].entries()) {
+    if (value) $("metadata").append(element("span", index === 1 ? "metadata-item metadata-id" : "metadata-item", value));
   }
   const aio = row.aio_response;
   const refs = array(aio?.references).filter((ref) => ref && typeof ref === "object").map((ref, i) => ({ ...ref, _id: `source-${i}` }));
@@ -322,7 +322,7 @@ async function loadQueries() {
       button.setAttribute("aria-pressed", "false");
       const top = element("div", "record-top");
       top.append(element("span", "record-id", row.query_id), element("span", "badge", row.aio_status || "unknown"));
-      button.append(top, element("span", "record-query", row.query), element("span", "record-action", "Open saved response →"));
+      button.append(top, element("span", "record-query", row.query));
       button.addEventListener("click", () => selectRecord(row, button));
       $("records").append(button);
     }
@@ -572,7 +572,7 @@ $("aio-json").addEventListener("click", () => showJSON("aio_response"));
 $("organic-json").addEventListener("click", () => showJSON("organic_results"));
 $("json-scope").addEventListener("change", renderJSON);
 $("copy-json").addEventListener("click", async () => {
-  try { await navigator.clipboard.writeText($("json-content").textContent); $("copy-status").textContent = "JSON copied."; }
+  try { await navigator.clipboard.writeText($("json-content").textContent); $("copy-status").textContent = "JSON copied"; }
   catch { $("copy-status").textContent = "Clipboard unavailable. Select the JSON text to copy it manually."; }
 });
 const archiveBreakpoint = window.matchMedia("(max-width: 999px)");

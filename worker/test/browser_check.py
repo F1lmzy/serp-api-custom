@@ -1,4 +1,4 @@
-"""Optional Chromium check of the actual Worker bundle, using synthetic JWT/DB.
+"""Optional anonymous Chromium check of the public Worker with a synthetic DB.
 
 Requires the repository's Python Playwright installation and `npm ci`.
 No production credentials, Cloudflare account, or external fetches are used.
@@ -66,15 +66,15 @@ def main():
             expect(page.locator("#response")).to_be_visible()
             page.locator("#json-tab").click()
             assert json.loads(page.locator("#json-content").inner_text()) == rows[0]
-            # Access login HTML/redirects are not JSON and must not become an
-            # opaque JSON parse error or be inserted into the result surface.
-            page.route("**/api/queries?*", lambda route: route.fulfill(status=200, content_type="text/html", body="<html>Sign in required</html>"))
+            # Unexpected upstream HTML/redirects must not become an opaque
+            # JSON parse error or be inserted into the result surface.
+            page.route("**/api/queries?*", lambda route: route.fulfill(status=200, content_type="text/html", body="<html>Unexpected upstream page</html>"))
             page.evaluate("loadQueries()")
-            expect(page.locator("#notice")).to_contain_text("session may have expired")
+            expect(page.locator("#notice")).to_contain_text("unexpected response")
             page.unroute("**/api/queries?*")
-            page.route("**/api/queries?*", lambda route: route.fulfill(status=302, headers={"Location": "/login-required"}))
+            page.route("**/api/queries?*", lambda route: route.fulfill(status=302, headers={"Location": "/unexpected-redirect"}))
             page.evaluate("loadQueries()")
-            expect(page.locator("#notice")).to_contain_text("refresh the page to renew your sign-in")
+            expect(page.locator("#notice")).to_contain_text("Check your connection and try again")
             assert not errors, errors
             assert not external, external
             browser.close()

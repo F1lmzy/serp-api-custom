@@ -12,8 +12,8 @@
     "binding": "ASSETS",
     "run_worker_first": true
   }
-  // No routes here: attach your custom domain in the Cloudflare dashboard only
-  // AFTER creating its Access application. Dashboard routes persist on deploy.
+  // Public viewer: attach your custom domain in the Cloudflare dashboard.
+  // No Access application or login is required. Dashboard routes persist.
   // Set runtime variables/secrets in Worker Settings > Variables & Secrets.
-  // See docs/cloudflare-workers.md. There is no authentication bypass/dev flag.
+  // See docs/cloudflare-workers.md. Database credentials stay server-side.
 }

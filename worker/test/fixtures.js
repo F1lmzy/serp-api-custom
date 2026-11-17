@@ -1,10 +1,8 @@
-import { exportJWK, generateKeyPair, SignJWT } from "jose";
-
 export const RUN_A = "12345678-1234-4234-8234-123456789abc";
 export const RUN_B = "22345678-1234-4234-8234-123456789abc";
 export const ENV = {
-  APP_HOSTNAME: "archive.example.test", CF_ACCESS_TEAM_DOMAIN: "test-team.cloudflareaccess.com",
-  CF_ACCESS_AUD: "test-audience", SUPABASE_PROJECT_ID: "a".repeat(20), SUPABASE_SECRET_KEY: "test-only-not-a-real-secret",
+  APP_HOSTNAME: "archive.example.test",
+  SUPABASE_PROJECT_ID: "a".repeat(20), SUPABASE_SECRET_KEY: "test-only-not-a-real-secret",
 };
 export const BASE = {
   run_id: RUN_A, query_id: "P01", ordinal: 1,
@@ -60,11 +58,4 @@ export function fixtureReader() {
       return structuredClone(selected);
     },
   };
-}
-
-export const keys = await generateKeyPair("RS256", { extractable: true });
-export const publicJWK = { ...await exportJWK(keys.publicKey), kid: "test-key", alg: "RS256", use: "sig" };
-export async function token(overrides = {}, signingKey = keys.privateKey) {
-  const now = Math.floor(Date.now() / 1000);
-  return new SignJWT({ iss: `https://${ENV.CF_ACCESS_TEAM_DOMAIN}`, aud: ENV.CF_ACCESS_AUD, sub: "test-user", iat: now, exp: now + 300, ...overrides }).setProtectedHeader({ alg: "RS256", kid: "test-key" }).sign(signingKey);
 }

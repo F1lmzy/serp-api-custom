@@ -9,8 +9,8 @@ export function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json; charset=utf-8" } });
 }
 
-// Applied to assets, data, errors and authentication failures. Never cache
-// authenticated query responses; never copy upstream headers into API replies.
+// Applied to all public assets, data and errors. Avoid stale archive responses
+// and shared caches; never copy upstream headers into API replies.
 export function secure(response, head = false) {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "private, no-store");

@@ -14,11 +14,13 @@ Google AIO Scraper is a Python command-line tool for researchers and developers 
 
 The repository also includes a read-only web viewer with query filters and
 cross-run comparison. Cloudflare Workers serves both the frontend and Supabase
-API; Cloudflare Access protects the entire site. No laptop or tunnel is needed.
+API. The hosted site and its read-only API are **public, with no login**; anyone
+can browse all saved runs and raw responses. Database credentials stay on the
+Worker. No laptop or tunnel is needed.
 
 See **[Cloudflare deployment steps](docs/cloudflare-workers.md)** for Git-based
-setup, runtime secrets, Access authentication and your custom domain. Deployment
-starts private/fail-closed: `workers.dev` and preview URLs are disabled.
+setup, runtime secrets and your custom domain. `workers.dev` and preview URLs
+remain disabled; attach your custom domain in the Cloudflare dashboard.
 
 For local Worker checks: `npm ci && npm run check && npm test && npm run build`.
 The last command is a dry run, not a live deployment.

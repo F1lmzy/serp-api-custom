@@ -1,31 +1,38 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BASE, ENV, RUN_A, RUN_B, token } from "./fixtures.js";
+import { BASE, ENV, RUN_A, RUN_B } from "./fixtures.js";
 import { createRuntime } from "./runtime-fixture.js";
 
-test("bundled production Worker in workerd: authentication, assets, filters, comparison and secrecy", async (t) => {
+test("bundled public Worker in workerd: anonymous assets, filters, comparison and secret isolation", async (t) => {
   const runtime = await createRuntime();
   t.after(() => runtime.close());
   const url = (path) => `https://${ENV.APP_HOSTNAME}${path}`;
-  for (const path of ["/", "/app.js", "/api/runs"]) assert.equal((await runtime.mf.dispatchFetch(url(path))).status, 401);
-  assert.equal(runtime.network.length, 0); assert.equal(runtime.assets.length, 0);
-  const jwt = await token(), headers = { "Cf-Access-Jwt-Assertion": jwt };
-  let response = await runtime.mf.dispatchFetch(url("/"), { headers });
-  assert.equal(response.status, 200); assert.match(await response.text(), /Search Archive/);
-  assert.match(response.headers.get("Cache-Control"), /no-store/);
-  response = await runtime.mf.dispatchFetch(url("/api/runs"), { headers });
+  for (const path of ["/", "/app.js", "/styles.css"]) {
+    const response = await runtime.mf.dispatchFetch(url(path));
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.ok(!body.includes(ENV.SUPABASE_SECRET_KEY));
+    if (path === "/") assert.match(body, /Search Archive/);
+    assert.match(response.headers.get("Cache-Control"), /no-store/);
+  }
+  assert.equal(runtime.network.length, 0);
+  assert.equal(runtime.assets.length, 3);
+  let response = await runtime.mf.dispatchFetch(url("/api/runs"));
   assert.equal(response.status, 200); assert.equal((await response.json()).items.length, 2);
-  response = await runtime.mf.dispatchFetch(url(`/api/queries?run_id=${RUN_A}&aio_status=absent&offset=50`), { headers });
+  response = await runtime.mf.dispatchFetch(url(`/api/queries?run_id=${RUN_A}&aio_status=absent&offset=50`));
   assert.deepEqual((await response.json()).items.map((row) => row.query_id), ["A51"]);
-  response = await runtime.mf.dispatchFetch(url(`/api/response?run_id=${RUN_A}&query_id=P01`), { headers });
+  response = await runtime.mf.dispatchFetch(url(`/api/response?run_id=${RUN_A}&query_id=P01`));
   assert.deepEqual(await response.json(), BASE);
-  response = await runtime.mf.dispatchFetch(url(`/api/comparison-matches?run_id=${RUN_A}&query_id=P01&compare_run_id=${RUN_B}`), { headers });
+  response = await runtime.mf.dispatchFetch(url(`/api/comparison-matches?run_id=${RUN_A}&query_id=P01&compare_run_id=${RUN_B}`));
   assert.deepEqual((await response.json()).items.map((row) => row.query_id), ["different-id"]);
-  response = await runtime.mf.dispatchFetch(url(`/api/queries?run_id=${RUN_A}&captured_from=2026-02-30`), { headers });
+  const calls = runtime.network.length;
+  response = await runtime.mf.dispatchFetch(url(`/api/queries?run_id=${RUN_A}&captured_from=2026-02-30`));
   assert.equal(response.status, 400);
-  for (const path of ["/.env", "/worker/index.js", "/api/arbitrary-table"]) assert.equal((await runtime.mf.dispatchFetch(url(path), { headers })).status, 404);
-  const failed = await runtime.mf.dispatchFetch(url("/api/runs"), { headers: { "Cf-Access-Jwt-Assertion": await token({ aud: "wrong" }) } });
-  assert.equal(failed.status, 401);
-  const text = await failed.text(); assert.ok(!text.includes(ENV.SUPABASE_SECRET_KEY)); assert.ok(!text.includes(jwt));
-  assert.equal(runtime.network.filter((path) => path.includes("/cdn-cgi/access/certs")).length, 1);
+  for (const path of ["/.env", "/worker/index.js", "/api/arbitrary-table"]) assert.equal((await runtime.mf.dispatchFetch(url(path))).status, 404);
+  assert.equal((await runtime.mf.dispatchFetch(url("/api/runs"), { method: "POST" })).status, 405);
+  assert.equal(runtime.network.length, calls);
+  for (const target of runtime.network) assert.equal(new URL(target).origin, `https://${ENV.SUPABASE_PROJECT_ID}.supabase.co`);
+  response = await runtime.mf.dispatchFetch(url("/api/runs"), { headers: { "Cf-Access-Jwt-Assertion": "stale.token.ignored" } });
+  assert.equal(response.status, 200);
+  assert.ok(!(await response.text()).includes(ENV.SUPABASE_SECRET_KEY));
 });

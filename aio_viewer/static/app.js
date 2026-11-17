@@ -37,9 +37,9 @@ async function api(path, params = {}) {
   try {
     response = await fetch(path + "?" + new URLSearchParams(params), { cache: "no-store", credentials: "same-origin", redirect: "error" });
   } catch {
-    throw new Error("Could not reach the viewer. Check your connection or refresh the page to renew your sign-in.");
+    throw new Error("Could not reach the viewer. Check your connection and try again.");
   }
-  if (!response.headers.get("Content-Type")?.includes("application/json")) throw new Error("Your session may have expired. Refresh the page to sign in again.");
+  if (!response.headers.get("Content-Type")?.includes("application/json")) throw new Error("The viewer returned an unexpected response. Refresh the page and try again.");
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Could not load saved responses.");
   return data;

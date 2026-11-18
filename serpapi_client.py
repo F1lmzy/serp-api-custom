@@ -167,6 +167,24 @@ def _lazy_overview(overview: Any) -> dict[str, Any] | None:
     return None
 
 
+def _capture_result(status, response, evidence, error, secrets):
+    """Pure exit boundary; sanitize raw data once, accept a redacted error."""
+    return {
+        "status": status,
+        "response": _sanitize(response, secrets),
+        "evidence": _sanitize(evidence, secrets),
+        "error": error,
+    }
+
+
+def _resolved_overview(response):
+    """Accept a follow-up only when its shape and nonempty blocks are usable."""
+    if _invalid_shape(response) or response.get('error'):
+        return None
+    overview = response.get('ai_overview')
+    return overview if isinstance(overview, dict) and overview.get('text_blocks') else None
+
+
 def fetch_search(
     query: str,
     *,
@@ -197,27 +215,15 @@ def fetch_search(
     try:
         initial = _request_json(initial_params, timeout=timeout)
     except SerpApiRequestError as exc:
-        return {
-            "status": "error",
-            "response": None,
-            "evidence": {},
-            "error": _redact_string(str(exc), secrets),
-        }
+        return _capture_result("error", None, {}, _redact_string(str(exc), secrets), secrets)
     if _invalid_shape(initial):
-        return {
-            "status": "error",
-            "response": None,
-            "evidence": sanitize({'initial_response': initial}, secrets),
-            "error": "SerpApi returned an invalid response shape",
-        }
+        return _capture_result("error", None, {'initial_response': initial},
+                               "SerpApi returned an invalid response shape",
+                               secrets + tuple(_embedded_secrets(initial)))
     secrets += tuple(_embedded_secrets(initial))
     if initial.get("error"):
-        return {
-            "status": "error",
-            "response": None,
-            "evidence": sanitize({'initial_response': initial}, secrets),
-            "error": _redact_string(str(initial["error"]), secrets),
-        }
+        return _capture_result("error", None, {'initial_response': initial},
+                               _redact_string(str(initial["error"]), secrets), secrets)
 
     overview = initial.get("ai_overview")
     evidence: dict[str, Any] = {}
@@ -226,12 +232,7 @@ def fetch_search(
 
     lazy = _lazy_overview(overview)
     if lazy is None:
-        return {
-            "status": "ok",
-            "response": _sanitize(initial, secrets),
-            "evidence": _sanitize(evidence, secrets),
-            "error": None,
-        }
+        return _capture_result("ok", initial, evidence, None, secrets)
 
     follow_up_params: dict[str, Any] = {
         "engine": "google_ai_overview",
@@ -244,30 +245,16 @@ def fetch_search(
     except SerpApiRequestError as exc:
         evidence["follow_up"] = None
         evidence["follow_up_error"] = str(exc)
-        return {
-            "status": "unresolved",
-            "response": _sanitize(initial, secrets),
-            "evidence": _sanitize(evidence, secrets),
-            "error": _redact_string(f"AI Overview follow-up failed: {exc}", secrets),
-        }
+        return _capture_result("unresolved", initial, evidence,
+                               _redact_string(f"AI Overview follow-up failed: {exc}", secrets), secrets)
 
     secrets += tuple(_embedded_secrets(follow_up))
-    resolved = follow_up.get("ai_overview") if isinstance(follow_up, dict) else None
+    resolved = _resolved_overview(follow_up)
     evidence["follow_up"] = follow_up
-    if (_invalid_shape(follow_up) or follow_up.get('error')
-            or not isinstance(resolved, dict) or not resolved.get("text_blocks")):
+    if resolved is None:
         evidence["follow_up_error"] = "AI Overview follow-up returned no text blocks"
-        return {
-            "status": "unresolved",
-            "response": _sanitize(initial, secrets),
-            "evidence": _sanitize(evidence, secrets),
-            "error": "AI Overview follow-up returned no text blocks",
-        }
+        return _capture_result("unresolved", initial, evidence,
+                               "AI Overview follow-up returned no text blocks", secrets)
 
     effective = {**initial, "ai_overview": resolved}
-    return {
-        "status": "ok",
-        "response": _sanitize(effective, secrets),
-        "evidence": _sanitize(evidence, secrets),
-        "error": None,
-    }
+    return _capture_result("ok", effective, evidence, None, secrets)

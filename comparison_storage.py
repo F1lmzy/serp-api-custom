@@ -13,12 +13,11 @@ from pathlib import Path
 
 import supabase_results as storage
 from supabase_results import (
-    BLOCK_KEYS, DROP_SECTIONS, IGNORED, MEDIA_KEYS, STATUSES, SUPPORT_KEYS,
     normalize_records, normalize_response_snapshot as normalize_native_snapshot,
-    render_text, response_counts, secrets, execute_sql, sql_export,
+    secrets, execute_sql, sql_export,
 )
 from serpapi_client import sanitize
-from response_sql import TABLE_COLUMNS, UPLOAD_SQL
+from response_sql import UPLOAD_SQL
 
 
 def upload_records(records, comparison_id, project_id, access_token, label=''):
@@ -45,11 +44,13 @@ def main(argv=None):
         output.mkdir(parents=True, exist_ok=False)
         (output/'data.sql').write_text(sql_export(tables))
         (output/'tables.json').write_text(json.dumps(tables, ensure_ascii=False, indent=2) + '\n')
+        counts = {table: len(rows) for table, rows in tables.items()}
         summary = {'storage_schema_version': 3, 'response_schema_version': 1,
-                   'comparison_id': args.comparison_id, 'counts': {t: len(v) for t, v in tables.items()}, 'uploaded': False}
+                   'comparison_id': args.comparison_id, 'counts': counts, 'uploaded': False}
         (output/'manifest.json').write_text(json.dumps(summary, indent=2) + '\n')
         if args.upload:
-            receipt = upload_records(records, args.comparison_id, os.getenv('SUPABASE_PROJECT_ID'), os.getenv('SUPABASE_ACCESS_TOKEN'), args.label)
+            receipt = upload_records(records, args.comparison_id,
+                                    os.getenv('SUPABASE_PROJECT_ID'), os.getenv('SUPABASE_ACCESS_TOKEN'), args.label)
             (output/'upload.json').write_text(json.dumps(receipt, indent=2) + '\n')
             summary['uploaded'] = True
             (output/'manifest.json').write_text(json.dumps(summary, indent=2) + '\n')

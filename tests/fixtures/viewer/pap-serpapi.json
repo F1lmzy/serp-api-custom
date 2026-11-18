@@ -1,0 +1,301 @@
+{
+  "run_id": "1334f389-1b8e-5c01-a7c6-31fdfc3dd491",
+  "query_id": "PAP01-01-V1",
+  "ordinal": 1,
+  "query": "effects of Federal Reserve interest rate increases on inflation in the United States",
+  "hl": "en",
+  "gl": "us",
+  "status": "ok",
+  "error_code": null,
+  "error_message": null,
+  "snapshot_id": "34c7e1f5-03b6-46de-a609-855777b91719:PAP01-01-V1:a1",
+  "captured_at": "2026-11-12T14:02:38+00:00",
+  "capture_status": "ok",
+  "aio_status": "present",
+  "device": "desktop",
+  "google_domain": "google.com",
+  "warnings": [
+    "opaque_google_redirect_url",
+    "unknown_aio_block_fields:snippet_highlighted_words",
+    "unknown_aio_content_field:serpapi_link"
+  ],
+  "response_schema_version": 1,
+  "aio_response": {
+    "paragraph": "When the Federal Reserve raises interest rates, it increases borrowing costs and cools overall economic demand, which helps drive inflation down toward its 2% target. Would you like to know more about how interest rates currently impact a specific sector (like housing or banking), or do you want to look at historical rate-hiking cycles ?",
+    "text": "When the Federal Reserve raises interest rates, it increases borrowing costs and cools overall economic demand, which helps drive inflation down toward its 2% target.\n\nHow Rate Increases Affect Inflation\n\n• Higher Borrowing Costs: Raising the federal funds rate causes commercial banks to increase prime lending rates, making mortgages, auto loans, credit cards, and business lines of credit more expensive.\n• Dampened Consumer and Business Spending: Because borrowing costs rise, households cut back on large purchases and businesses scale back investments and expansions. This drop in aggregate demand reduces upward pressure on prices.\n• Increased Incentives to Save: Higher rates boost yields on savings accounts, certificates of deposit (CDs), and money market funds, encouraging people to save rather than spend.\n• Sector-Specific Impact: Interest-sensitive sectors—such as housing and auto manufacturing—react most sharply and quickly to rate hikes, while service-sector inflation often takes longer to adjust.\n• Time Lags: Policy changes do not work immediately; there is a notable economic lag—often months—between a Fed rate hike and its full effect showing up in inflation data.\n\nOfficial Resources & Guides\n\n• Review the Federal Reserve Monetary Policy FAQ to learn how the central bank uses interest rates to balance employment and price stability.\n• Read the Cleveland Fed Inflation Guide for a deeper breakdown of the dual mandate and the 2% target.\n\nWould you like to know more about how interest rates currently impact a specific sector (like housing or banking), or do you want to look at historical rate-hiking cycles ?",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "snippet": "When the Federal Reserve raises interest rates, it increases borrowing costs and cools overall economic demand, which helps drive inflation down toward its 2% target.",
+        "reference_indexes": [
+          0,
+          1
+        ]
+      },
+      {
+        "type": "heading",
+        "snippet": "How Rate Increases Affect Inflation"
+      },
+      {
+        "type": "list",
+        "list": [
+          {
+            "snippet": "Higher Borrowing Costs: Raising the federal funds rate causes commercial banks to increase prime lending rates, making mortgages, auto loans, credit cards, and business lines of credit more expensive.",
+            "reference_indexes": [
+              2,
+              3
+            ]
+          },
+          {
+            "snippet": "Dampened Consumer and Business Spending: Because borrowing costs rise, households cut back on large purchases and businesses scale back investments and expansions. This drop in aggregate demand reduces upward pressure on prices.",
+            "reference_indexes": [
+              1,
+              2
+            ]
+          },
+          {
+            "snippet": "Increased Incentives to Save: Higher rates boost yields on savings accounts, certificates of deposit (CDs), and money market funds, encouraging people to save rather than spend.",
+            "reference_indexes": [
+              1,
+              4
+            ]
+          },
+          {
+            "snippet": "Sector-Specific Impact: Interest-sensitive sectors—such as housing and auto manufacturing—react most sharply and quickly to rate hikes, while service-sector inflation often takes longer to adjust.",
+            "reference_indexes": [
+              2
+            ]
+          },
+          {
+            "snippet": "Time Lags: Policy changes do not work immediately; there is a notable economic lag—often months—between a Fed rate hike and its full effect showing up in inflation data.",
+            "reference_indexes": [
+              2
+            ]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "snippet": "Official Resources & Guides"
+      },
+      {
+        "type": "list",
+        "list": [
+          {
+            "snippet": "Review the Federal Reserve Monetary Policy FAQ to learn how the central bank uses interest rates to balance employment and price stability.",
+            "snippet_links": [
+              {
+                "text": "Federal Reserve Monetary Policy FAQ",
+                "link": "https://www.federalreserve.gov/faqs/money_12856.htm"
+              }
+            ],
+            "reference_indexes": [
+              5
+            ]
+          },
+          {
+            "snippet": "Read the Cleveland Fed Inflation Guide for a deeper breakdown of the dual mandate and the 2% target.",
+            "snippet_links": [
+              {
+                "text": "Cleveland Fed Inflation Guide",
+                "link": "https://www.clevelandfed.org/center-for-inflation-research/inflation-explained-your-guide-to-inflation-basics/why-does-the-fed-care-about-inflation"
+              }
+            ],
+            "reference_indexes": [
+              6
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "snippet": "Would you like to know more about how interest rates currently impact a specific sector (like housing or banking), or do you want to look at historical rate-hiking cycles ?",
+        "snippet_links": [
+          {
+            "text": "how interest rates currently impact a specific sector",
+            "link": "https://www.google.com/search?q=how+interest+rates+currently+impact+a+specific+sector&udm=50",
+            "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_ai_mode&q=how+interest+rates+currently+impact+a+specific+sector"
+          },
+          {
+            "text": "historical rate-hiking cycles",
+            "link": "https://www.google.com/search?q=historical+rate-hiking+cycles&udm=50",
+            "serpapi_link": "https://serpapi.com/search.json?device=desktop&engine=google_ai_mode&q=historical+rate-hiking+cycles"
+          }
+        ]
+      }
+    ],
+    "references": [
+      {
+        "ordinal": 1,
+        "index": 0,
+        "link": "https://www.congress.gov/crs_external_products/IN/HTML/IN12388.html",
+        "title": "When the Fed raises the federal funds rate",
+        "source": "Congress.gov",
+        "snippet": "The Fed has a statutory mandate to promote \"maximum employment, stable prices, and moderate long-term interest rates.\" The Fed has defined 2% inflation—as measured..."
+      },
+      {
+        "ordinal": 2,
+        "index": 1,
+        "link": "https://www.chase.com/personal/banking/education/basics/how-does-raising-interest-rates-help-inflation",
+        "title": "How Does Raising Interest Rates Help Inflation?",
+        "source": "Chase Bank",
+        "snippet": "Inflation and interest rates Central banks often adjust interest rates according to inflation. Raising and lowering interest rates may help manage inflationary pre..."
+      },
+      {
+        "ordinal": 3,
+        "index": 2,
+        "link": "https://www.investopedia.com/ask/answers/12/inflation-interest-rate-relationship.asp",
+        "title": "Exploring How Inflation and Interest Rates Interact",
+        "source": "Investopedia",
+        "snippet": "Interest rate adjustments face limitations, such as delayed economic effects and sector-specific impacts. * The full impact of changes to the Fed Funds rate takes ..."
+      },
+      {
+        "ordinal": 4,
+        "index": 3,
+        "link": "https://www.macatawabank.com/articles/2022/09/fed-interest-rate-changes-how-does-this-impact-your-personal-finances.html",
+        "title": "Fed Interest Rate Changes: How Does This Impact Your Personal Finances? | Macatawa Bank, N.A.",
+        "source": "Macatawa Bank",
+        "snippet": "Fed Funds Rate: Overnight rate banks borrow from the Fed, controlling inflation and economic balance by rising to curb inflation or lowering to stimulate the econo..."
+      },
+      {
+        "ordinal": 5,
+        "index": 4,
+        "link": "https://www.google.com/goto?url=CAESsQEBxCJF1_CUwm7yI_szC0V_nRt-nfrYDh4C-ZqsuEYj7rrxdTbhOIkqaX2Fp1hSHctnaWUt5F60XJDjEcAQ5f8-dbToCNYWd2cfdGJNb7Zol7ggmvWBrcsoQDaID0DJAQiw6dwtsypfr25dTY4sytUAl9QxvmupXUO_JzvhieJLc11u-UKYMGpznmb6cZYiqz0njR9D_pd5Pp8JqSAQBnWF_FEiJjv63YgKU9HZ_IllyTM",
+        "title": "Fed Interest Rate Changes: How Does This Impact Your Personal ...",
+        "source": "Wintrust",
+        "snippet": "When the Fed raises rates, it leads to savings products like money market accounts and certificates of deposit (CDs), having higher interest rates, which can help ..."
+      },
+      {
+        "ordinal": 6,
+        "index": 5,
+        "link": "https://www.federalreserve.gov/faqs/money_12856.htm",
+        "title": "How does the Federal Reserve affect inflation and employment?",
+        "source": "Federal Reserve (.gov)",
+        "snippet": "As the Federal Reserve conducts monetary policy, it influences employment and inflation primarily through using its policy tools to affect overall financial condit..."
+      },
+      {
+        "ordinal": 7,
+        "index": 6,
+        "link": "https://www.clevelandfed.org/center-for-inflation-research/inflation-explained-your-guide-to-inflation-basics/why-does-the-fed-care-about-inflation",
+        "title": "Why Does the Fed Care about Inflation?",
+        "source": "Federal Reserve Bank of Cleveland",
+        "snippet": "The Federal Reserve influences inflation by adjusting interest rates. When inflation is too high, the Federal Reserve typically raises interest rates to slow the e..."
+      }
+    ]
+  },
+  "organic_results": [
+    {
+      "ordinal": 1,
+      "position": 1,
+      "link": "https://www.investopedia.com/ask/answers/12/inflation-interest-rate-relationship.asp",
+      "title": "Exploring How Inflation and Interest Rates Interact",
+      "snippet": "Interest rates influence borrowing costs, affecting consumer and business spending, thus moderating inflation. The federal funds rate is pivotal for central ...",
+      "displayed_link": "https://www.investopedia.com › Economy › Economics",
+      "source": "Investopedia",
+      "sitelinks": {
+        "inline": [
+          {
+            "title": "How the Fed Measures Inflation",
+            "link": "https://www.investopedia.com/ask/answers/12/inflation-interest-rate-relationship.asp#toc-the-impact-of-interest-rates-on-inflation"
+          },
+          {
+            "title": "Inflation Targeting Using the...",
+            "link": "https://www.investopedia.com/ask/answers/12/inflation-interest-rate-relationship.asp#toc-inflation-targeting-using-the-federal-funds-rate"
+          }
+        ]
+      }
+    },
+    {
+      "ordinal": 2,
+      "position": 2,
+      "link": "https://www.clevelandfed.org/center-for-inflation-research/inflation-explained-your-guide-to-inflation-basics/why-does-the-fed-care-about-inflation",
+      "title": "Why Does the Fed Care about Inflation?",
+      "snippet": "When inflation is too high, the Federal Reserve typically raises interest rates to slow the economy and bring inflation down. When inflation is too low, the ...",
+      "displayed_link": "https://www.clevelandfed.org › why-does-the-fed-care-...",
+      "source": "Federal Reserve Bank of Cleveland"
+    },
+    {
+      "ordinal": 3,
+      "position": 3,
+      "link": "https://www.congress.gov/crs_external_products/IN/HTML/IN12388.html",
+      "title": "When the Fed raises the federal funds rate",
+      "snippet": "When the Fed raises the federal funds rate, it reduces interest-sensitive spending, causing overall demand (spending) to cool off and inflation to fall, all ...",
+      "displayed_link": "https://www.congress.gov › HTML",
+      "source": "Congress.gov"
+    },
+    {
+      "ordinal": 4,
+      "position": 4,
+      "link": "https://www.federalreserve.gov/faqs/money_12856.htm",
+      "title": "How does the Federal Reserve affect inflation and ...",
+      "snippet": "Changes in the federal funds rate influence other interest rates that in turn influence borrowing costs for households and businesses as well as ...",
+      "displayed_link": "https://www.federalreserve.gov › faqs › money_12856",
+      "source": "Federal Reserve (.gov)",
+      "date": "Jul 19, 2024"
+    },
+    {
+      "ordinal": 5,
+      "position": 5,
+      "link": "https://www.discover.com/online-banking/banking-topics/how-does-the-federal-reserve-interest-rate-affect-me/",
+      "title": "How does the Federal Reserve interest rate affect me?",
+      "snippet": "By raising or lowering interest rates, the Fed tries to influence the cost of borrowing money, which can curb or boost inflation. When interest ...",
+      "displayed_link": "https://www.discover.com › banking-topics › how-does-t...",
+      "source": "Discover",
+      "date": "Dec 15, 2025"
+    },
+    {
+      "ordinal": 6,
+      "position": 6,
+      "link": "https://www.chase.com/personal/banking/education/basics/how-does-raising-interest-rates-help-inflation",
+      "title": "How Does Raising Interest Rates Help Inflation?",
+      "snippet": "For example, if inflation is running hot and prices are rising rapidly, the Fed might raise rates to try to temper it — while keeping a close handle on just how ...",
+      "displayed_link": "https://www.chase.com › ... › Banking basics",
+      "source": "Chase Bank"
+    },
+    {
+      "ordinal": 7,
+      "position": 7,
+      "link": "https://www.macatawabank.com/articles/2022/09/fed-interest-rate-changes-how-does-this-impact-your-personal-finances.html",
+      "title": "Fed Interest Rate Changes: How Does This Impact Your ...",
+      "snippet": "When inflation is too high, the Fed can raise the rate to help slow the economy and attempt to lower inflation. On the other side of the spectrum, if inflation ...",
+      "displayed_link": "https://www.macatawabank.com › articles › 2022/09 › f...",
+      "source": "Macatawa Bank"
+    },
+    {
+      "ordinal": 8,
+      "position": 8,
+      "link": "https://equitablegrowth.org/what-is-the-relationship-between-inflation-interest-rates-and-economic-growth-and-what-does-it-mean-for-the-new-federal-reserve-chair/",
+      "title": "What is the relationship between inflation, interest rates ...",
+      "snippet": "And political pressure on the Fed from the president has been shown to empirically increase inflation with no impact on economic growth.",
+      "displayed_link": "https://equitablegrowth.org › what-is-the-relationship-bet...",
+      "source": "Equitable Growth",
+      "author": "by J Robbins"
+    },
+    {
+      "ordinal": 9,
+      "position": 9,
+      "link": "https://www.sciencedirect.com/science/article/abs/pii/S1544612323012382",
+      "title": "Impact of higher federal funds rates on bank risk during ...",
+      "snippet": "Overall, higher fed funds rates adversely impact U.S. bank risk during higher inflation rate. •. The impact of fed funds rate is heterogeneous among banks. •.",
+      "displayed_link": "https://www.sciencedirect.com › article › abs › pii",
+      "source": "ScienceDirect.com",
+      "author": "by JA Koch",
+      "sitelinks": {
+        "inline": [
+          {
+            "title": "Highlights",
+            "link": "https://www.sciencedirect.com/science/article/abs/pii/S1544612323012382#:~:text=Highlights"
+          },
+          {
+            "title": "Introduction",
+            "link": "https://www.sciencedirect.com/science/article/abs/pii/S1544612323012382#:~:text=Introduction,-In%20March%202020%2C%20banks"
+          },
+          {
+            "title": "Section Snippets",
+            "link": "https://www.sciencedirect.com/science/article/abs/pii/S1544612323012382#:~:text=Section%20snippets,-Related%20literature"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -117,6 +117,18 @@ class FetchSearchTests(unittest.TestCase):
         self.assertEqual(result["status"], "unresolved")
         self.assertEqual(request.call_count, 2)
 
+    @patch.object(sc, '_request_json')
+    def test_failed_lazy_query_cannot_leak_followup_state_into_next_query(self, request):
+        request.side_effect = [dict(LAZY), sc.SerpApiRequestError('lost connection'), dict(INLINE)]
+        failed = sc.fetch_search('first', api_key='key123')
+        next_query = sc.fetch_search('second', api_key='key123')
+        self.assertEqual((failed['status'], next_query['status']), ('unresolved', 'ok'))
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual([call.args[0]['engine'] for call in request.call_args_list],
+                         ['google', 'google_ai_overview', 'google'])
+        self.assertNotIn('follow_up', next_query['evidence'])
+        self.assertEqual(next_query['response'], INLINE)
+
     @patch.object(sc, "_request_json")
     def test_api_error_field_returns_error(self, request):
         request.return_value = {"error": "Invalid API key"}
@@ -232,6 +244,15 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(result['status'], 'error')
         self.assertEqual(result['evidence']['initial_response']['search_metadata']['id'], 'abc')
         self.assertNotIn('fake-key-123', json.dumps(result))
+
+    def test_error_evidence_is_redacted_once_not_recursively_reprocessed(self):
+        for payload in ({'organic_results': {}, 'note': 'echo REDACTED', 'api_key': 'embedded-secret'},
+                        {'error': 'API failed REDACTED', 'api_key': 'embedded-secret'}):
+            with self.subTest(payload=payload), patch.object(sc, '_request_json', return_value=payload) as request:
+                result = sc.fetch_search('q', api_key='REDACTED')
+                self.assertEqual(result['status'], 'error')
+                self.assertEqual(result['evidence'], sc.sanitize({'initial_response': payload}, ('REDACTED',)))
+                request.assert_called_once()
 
     def test_http_error_json_payload_is_preserved(self):
         error = urllib.error.HTTPError(sc.SERPAPI_ENDPOINT, 401, 'error', {},

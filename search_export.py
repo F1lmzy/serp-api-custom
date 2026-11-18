@@ -29,6 +29,11 @@ def _scoped(value: Any) -> Any:
     return value
 
 
+def _mapping(value: Any) -> dict:
+    """Coerce an optional JSON field to a dict; any other shape counts as missing."""
+    return value if isinstance(value, dict) else {}
+
+
 def _unwrap_overview(value: Any) -> Any:
     while isinstance(value, dict) and isinstance(value.get("ai_overview"), dict):
         value = value["ai_overview"]
@@ -86,6 +91,19 @@ def _overview_status(response: dict, overview: Any, warnings: list[str]) -> str:
     return "empty"
 
 
+def capture_status_for_aio(aio_status: str) -> str:
+    """Classify extraction usability, not transport, batch or upload success.
+
+    Shared records may carry an explicit capture_status from their provider;
+    this mapping is for native extraction and comparison eligibility only.
+    """
+    if aio_status in ("invalid", "error"):
+        return "error"
+    if aio_status in ("unresolved", "empty"):
+        return "unresolved"
+    return "ok"
+
+
 def _opaque_google_redirect(value: Any) -> bool:
     if not isinstance(value, str):
         return False
@@ -104,15 +122,16 @@ def normalize_response(response: dict, *, provider: str, query_id: str = "P01", 
     """Convert a native response or saved snapshot to the shared comparison record."""
     if not isinstance(response, dict):
         raise ValueError("response must be a JSON object")
-    if provider not in {"custom", "serpapi"} or not isinstance(query_id, str) or not query_id.strip() or not isinstance(snapshot_id, str) or not snapshot_id.strip():
+    if (provider not in {"custom", "serpapi"} or not isinstance(query_id, str) or not query_id.strip()
+            or not isinstance(snapshot_id, str) or not snapshot_id.strip()):
         raise ValueError("provider, query_id, and snapshot_id must be non-empty valid identifiers")
     # Discover and redact credentials before dropping the fields containing them.
     response = sanitize(response)
     google = response.get("google") if isinstance(response.get("google"), dict) else response
-    collection = response.get("collection") if isinstance(response.get("collection"), dict) else {}
+    collection = _mapping(response.get("collection"))
     warnings = _shape_warnings(response)
-    params = google.get("search_parameters") if isinstance(google.get("search_parameters"), dict) else {}
-    metadata = google.get("search_metadata") if isinstance(google.get("search_metadata"), dict) else {}
+    params = _mapping(google.get("search_parameters"))
+    metadata = _mapping(google.get("search_metadata"))
     supplied = response.get("ai_overview", google.get("ai_overview"))
     overview = _unwrap_overview(supplied)
     status = _overview_status(response, overview, warnings)
@@ -152,12 +171,6 @@ def normalize_response(response: dict, *, provider: str, query_id: str = "P01", 
     if any(_opaque_google_redirect(ref.get("link")) for ref in refs):
         warnings.append("opaque_google_redirect_url")
     organic = google.get("organic_results")
-    if isinstance(organic, list):
-        for item in organic:
-            if isinstance(item, dict):
-                missing = [key for key in ("position", "title", "link", "snippet") if key not in item]
-                if missing:
-                    warnings.append("organic_missing_fields:" + ",".join(missing))
     if not isinstance(organic, list):
         organic = []
     organic_results = []
@@ -165,6 +178,9 @@ def normalize_response(response: dict, *, provider: str, query_id: str = "P01", 
         if not isinstance(item, dict):
             warnings.append("invalid_organic_result_item")
             continue
+        missing = [key for key in ("position", "title", "link", "snippet") if key not in item]
+        if missing:
+            warnings.append("organic_missing_fields:" + ",".join(missing))
         scoped = {k: _scoped(v) for k, v in item.items()
                   if k in ORGANIC_KEYS or (isinstance(k, str) and k.lower() not in MEDIA_KEYS | DROP_SECTIONS)}
         organic_results.append(scoped)
@@ -176,8 +192,8 @@ def normalize_response(response: dict, *, provider: str, query_id: str = "P01", 
         if not isinstance(page, dict):
             warnings.append("invalid_extra_page_item")
             continue
-        page_params = page.get("search_parameters") if isinstance(page.get("search_parameters"), dict) else {}
-        page_meta = page.get("search_metadata") if isinstance(page.get("search_metadata"), dict) else {}
+        page_params = _mapping(page.get("search_parameters"))
+        page_meta = _mapping(page.get("search_metadata"))
         page_results = page.get("organic_results")
         if not isinstance(page_results, list):
             warnings.append("invalid_extra_page_organic_results")
@@ -205,8 +221,9 @@ def normalize_response(response: dict, *, provider: str, query_id: str = "P01", 
               "ai_overview": {"blocks": blocks, "references": refs} if isinstance(overview, dict) else None,
               "organic_count": len(organic_results), "organic_results": organic_results,
               "warnings": sorted(set(warnings))}
-    if response.get("error") or (isinstance(response.get("google"), dict) and response["google"].get("error")):
-        result["error"] = _scoped(response.get("error", response["google"].get("error") if isinstance(response.get("google"), dict) else None))
+    if response.get("error") or google.get("error"):
+        error = response["error"] if "error" in response else google.get("error")
+        result["error"] = _scoped(error)
     if extra_pages:
         result["pagination"] = {"merged_pages": True, "extra_pages": extra_pages}
     return sanitize(result)
@@ -252,7 +269,8 @@ def export_records(records: list[dict], output_dir: str | Path) -> None:
 
 
 def _write_export_files(cleaned: list[dict], output_dir: Path) -> None:
-    (output_dir / "records.json").write_text(json.dumps(cleaned, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
+    payload = json.dumps(cleaned, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    (output_dir / "records.json").write_text(payload, encoding="utf-8")
 
 
 def _entries(value: Any) -> list[tuple[str | None, dict]]:
@@ -267,7 +285,8 @@ def _entries(value: Any) -> list[tuple[str | None, dict]]:
             raise ValueError("run results must be an array")
         entries = []
         for entry in value["results"]:
-            if not isinstance(entry, dict) or not isinstance(entry.get("result"), dict) or not isinstance(entry.get("query_id"), str):
+            if (not isinstance(entry, dict) or not isinstance(entry.get("result"), dict)
+                    or not isinstance(entry.get("query_id"), str)):
                 raise ValueError("run entries must contain query_id and result")
             item = dict(entry["result"])
             item.setdefault("collection", {"requested_at": value.get("captured_at"), "query_id": entry["query_id"]})
@@ -278,6 +297,14 @@ def _entries(value: Any) -> list[tuple[str | None, dict]]:
     if not value or any(not isinstance(item, dict) for item in value.values()):
         raise ValueError("batch entries must all be response objects")
     return [(str(key), item) for key, item in value.items()]
+
+
+def _next_free_query_id(query_ids: dict[str, str]) -> str:
+    """Smallest unused P## identifier so exports stay deterministic."""
+    candidate = 1
+    while f"P{candidate:02d}" in query_ids.values():
+        candidate += 1
+    return f"P{candidate:02d}"
 
 
 def load_input(paths: list[str | Path], *, provider: str) -> list[dict]:
@@ -291,8 +318,8 @@ def load_input(paths: list[str | Path], *, provider: str) -> list[dict]:
         for entry_index, (key, item) in enumerate(_entries(value), 1):
             response = dict(item)
             google = response.get("google") if isinstance(response.get("google"), dict) else response
-            collection = response.get("collection") if isinstance(response.get("collection"), dict) else {}
-            params = google.get("search_parameters") if isinstance(google.get("search_parameters"), dict) else {}
+            collection = _mapping(response.get("collection"))
+            params = _mapping(google.get("search_parameters"))
             query = params.get("q") or response.get("prompt")
             query_id = collection.get("query_id") or key
             repeated_key = re.fullmatch(r"(P\d+)_run(\d+)", key or "")
@@ -305,19 +332,17 @@ def load_input(paths: list[str | Path], *, provider: str) -> list[dict]:
                     query_ids_by_text.setdefault(query, query_id)
                 else:
                     if query not in query_ids_by_text:
-                        candidate = 1
-                        while f"P{candidate:02d}" in query_ids_by_text.values():
-                            candidate += 1
-                        query_ids_by_text[query] = f"P{candidate:02d}"
+                        query_ids_by_text[query] = _next_free_query_id(query_ids_by_text)
                     query_id = query_ids_by_text[query]
             query_id = query_id or f"P{entry_index:02d}"
-            metadata = google.get("search_metadata") if isinstance(google.get("search_metadata"), dict) else {}
-            api_id = collection.get("search_id") if isinstance(collection, dict) else None
-            api_id = api_id or metadata.get("id")
-            sid = f"{api_id}-input{path_index:02d}-record{entry_index:04d}" if api_id else f"input{path_index:02d}-record{entry_index:04d}"
-            records.append(normalize_response(response, provider=provider, query_id=str(query_id), snapshot_id=sid,
-                source_file=str(path), captured_at=collection.get("requested_at") if isinstance(collection, dict) else None,
-                settings=collection.get("settings") if isinstance(collection, dict) else None))
+            metadata = _mapping(google.get("search_metadata"))
+            api_id = collection.get("search_id") or metadata.get("id")
+            suffix = f"input{path_index:02d}-record{entry_index:04d}"
+            sid = f"{api_id}-{suffix}" if api_id else suffix
+            records.append(normalize_response(
+                response, provider=provider, query_id=str(query_id), snapshot_id=sid,
+                source_file=str(path), captured_at=collection.get("requested_at"),
+                settings=collection.get("settings")))
     return records
 
 

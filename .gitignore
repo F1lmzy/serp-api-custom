@@ -12,6 +12,7 @@ query_test/
 .DS_Store
 .codegraph/
 .pi/
+.agents/
 node_modules/
 .wrangler/
 .worker-build/

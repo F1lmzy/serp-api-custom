@@ -79,14 +79,32 @@ class AioStreamingTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(a.ScrapeError):
                 await a.GoogleAIOScraper()._wait_for_aio_answer(page, max_wait_ms=3000)
 
+    async def test_citation_destination_change_restarts_stabilization(self):
+        def document(t):
+            return (shell('<p>Unchanging answer.</p>')[:-6]
+                    + '<div data-src-id="1"><a href="https://source.example/'
+                    + ('first' if t < 1 else 'second') + '">Source</a></div></div>')
+        page, clock = self.page(document)
+        with patch.object(a.time, 'monotonic', side_effect=lambda: clock[0]):
+            self.assertTrue(await a.GoogleAIOScraper()._wait_for_aio_answer(page))
+        self.assertGreaterEqual(clock[0], 3)
+
+    async def test_stale_session_mirror_cannot_trigger_reload_for_new_query(self):
+        scraper = a.GoogleAIOScraper(proxy_mode='direct')
+        scraper._aio_shell_seen = True
+        attempt = a._SearchAttempt({'extraction_metadata': {'aio_status': 'absent'}}, False)
+        with patch.object(scraper, '_search_attempt', AsyncMock(return_value=attempt)) as once:
+            self.assertEqual(await scraper.search('new query'), attempt.response)
+        once.assert_awaited_once()
+
     async def test_search_reloads_transient_failure_once_and_returns_recovered_answer(self):
         scraper = a.GoogleAIOScraper()
         scraper.page = object()
         failure = {'extraction_metadata': {'aio_status': 'unresolved', 'aio_reason': 'generation_failed'}}
         success = {'extraction_metadata': {'aio_status': 'present'},
                    'ai_overview': {'text_blocks': [{'type': 'paragraph', 'snippet': 'Recovered'}]}}
-        scraper._aio_shell_seen = True
-        with patch.object(scraper, '_search_once', AsyncMock(side_effect=[failure, success])) as once:
+        with patch.object(scraper, '_search_attempt', AsyncMock(side_effect=[
+                a._SearchAttempt(failure, True), a._SearchAttempt(success, True)])) as once:
             self.assertEqual(await scraper.search('q'), success)
         self.assertEqual(once.await_count, 2)
 
@@ -94,7 +112,6 @@ class AioStreamingTests(unittest.IsolatedAsyncioTestCase):
         scraper = a.GoogleAIOScraper()
         scraper.page = object()
         unresolved = {'extraction_metadata': {'aio_status': 'unresolved', 'aio_reason': 'render_incomplete'}}
-        scraper._aio_shell_seen = True
-        with patch.object(scraper, '_search_once', AsyncMock(return_value=unresolved)) as once:
+        with patch.object(scraper, '_search_attempt', AsyncMock(return_value=a._SearchAttempt(unresolved, True))) as once:
             self.assertEqual(await scraper.search('q'), unresolved)
         self.assertEqual(once.await_count, 2)

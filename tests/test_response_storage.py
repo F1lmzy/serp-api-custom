@@ -132,6 +132,19 @@ class ResponseStorageCompatibilityTests(unittest.TestCase):
                 self.assertTrue(body.closed)
                 open_request.assert_called_once()
 
+    def test_http_413_never_falls_back_to_chunks_or_a_second_write(self):
+        for kind in ('native', 'shared'):
+            body = Response(b'payload too large')
+            error = urllib.error.HTTPError('https://api.supabase.com', 413, 'too large', {}, body)
+            with self.subTest(kind=kind), patch.object(storage, '_open', side_effect=error) as request:
+                with self.assertRaisesRegex(self.error_type(kind), '413'):
+                    self.upload(kind)
+                request.assert_called_once()
+                payload = json.loads(request.call_args.args[0].data)
+                self.assertEqual(payload['query'].count('INSERT INTO public.'), 2)
+                self.assertEqual(set(json.loads(payload['parameters'][0])), {'scrape_runs', 'queries'})
+                self.assertTrue(body.closed)
+
     def test_both_uploads_use_the_redirect_refusing_http_adapter(self):
         for kind in ("native", "shared"):
             expected = self.receipt(kind)

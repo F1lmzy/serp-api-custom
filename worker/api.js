@@ -23,7 +23,8 @@ function queryID(value) {
 function dateBoundary(value, name, through) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number(value.slice(0, 4)) < 1) bad(`Invalid ${name} date (use YYYY-MM-DD).`);
   const parsed = new Date(`${value}T00:00:00Z`);
-  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) bad(`Invalid ${name} date (use YYYY-MM-DD).`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value)
+    bad(`Invalid ${name} date (use YYYY-MM-DD).`);
   if (through) parsed.setUTCDate(parsed.getUTCDate() + 1);
   if (parsed.getUTCFullYear() > 9999) bad(`Invalid ${name} date (use YYYY-MM-DD).`);
   return parsed.toISOString().replace(".000Z", "Z");
@@ -42,7 +43,10 @@ export function queryFilters(params) {
     if (!allowed.includes(value)) bad(`Invalid ${key} filter.`);
     if (key === "aio_status" && value === "not_present") filters.or = "(aio_status.neq.present,aio_status.is.null)";
     else if (key === "aio_status" || key === "capture_status") filters[key] = value === "unknown" ? "is.null" : `eq.${value}`;
-    else filters[key === "has_warnings" ? "warnings" : "organic_results"] = value === "yes" ? "neq.[]" : "eq.[]";
+    else {
+      const column = key === "has_warnings" ? "warnings" : "organic_results";
+      filters[column] = value === "yes" ? "neq.[]" : "eq.[]";
+    }
   }
   for (const key of ["hl", "gl", "device"]) {
     const value = (params[key] || "").trim();
@@ -56,7 +60,8 @@ export function queryFilters(params) {
     const through = key === "captured_to";
     bounds.push(`captured_at.${through ? "lt" : "gte"}.${dateBoundary(params[key], key, through)}`);
   }
-  if (params.captured_from && params.captured_to && params.captured_from > params.captured_to) bad("Capture start date must not be after the end date.");
+  if (params.captured_from && params.captured_to && params.captured_from > params.captured_to)
+    bad("Capture start date must not be after the end date.");
   if (bounds.length) filters.and = `(${bounds.join(",")})`;
   return filters;
 }
@@ -91,7 +96,8 @@ export class SupabaseReader {
     }
     let rows;
     try { rows = await response.json(); } catch { throw new HTTPError(502, "Supabase returned an invalid response."); }
-    if (!Array.isArray(rows) || rows.some((row) => !row || typeof row !== "object" || Array.isArray(row))) throw new HTTPError(502, "Supabase returned an unexpected response.");
+    const notPlainObject = (row) => !row || typeof row !== "object" || Array.isArray(row);
+    if (!Array.isArray(rows) || rows.some(notPlainObject)) throw new HTTPError(502, "Supabase returned an unexpected response.");
     return rows;
   }
 }
@@ -124,7 +130,9 @@ export async function apiResponse(reader, path, params) {
     return rows[0] || null;
   }
   if (path === "/api/comparison-matches") {
-    const source = uuid(params.run_id), target = uuid(params.compare_run_id), identifier = queryID(params.query_id);
+    const source = uuid(params.run_id);
+    const target = uuid(params.compare_run_id);
+    const identifier = queryID(params.query_id);
     const limit = integer(params, "limit", 50, 100), offset = integer(params, "offset", 0, 10000000);
     if (source === target) bad("Choose two different capture runs.");
     const anchor = (await reader.get("queries", { select: "query,hl,gl", run_id: `eq.${source}`, query_id: `eq.${identifier}`, limit: 1 }))[0];

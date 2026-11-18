@@ -17,7 +17,9 @@ export function createWorker({ fetcher = globalThis.fetch.bind(globalThis) } = {
         // Intentionally public: assets and the read-only API require no login.
         // Database credentials remain server-side in SupabaseReader.
         if (!["GET", "HEAD"].includes(request.method)) {
-          return secure(new Response(JSON.stringify({ error: "Only GET and HEAD are supported." }), { status: 405, headers: { Allow: "GET, HEAD", "Content-Type": "application/json; charset=utf-8" } }));
+          const body = JSON.stringify({ error: "Only GET and HEAD are supported." });
+          const headers = { Allow: "GET, HEAD", "Content-Type": "application/json; charset=utf-8" };
+          return secure(new Response(body, { status: 405, headers }));
         }
         let response;
         if (ASSET_PATHS.has(url.pathname)) {

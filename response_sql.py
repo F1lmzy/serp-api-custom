@@ -21,7 +21,8 @@ def _upload_sql(native=False):
             source += ' LEFT JOIN saved_scrape_runs p ON p.run_id = i.run_id'
             values = 'p.run_id, ' + ', '.join('i."' + name + '"' for name, _ in columns[1:])
             returned += ', query_id, aio_response, organic_results'
-        ctes.append(f'saved_{table} AS (INSERT INTO public.{table} ({names}) SELECT {values} FROM {source} RETURNING {returned})')
+        insert = f"INSERT INTO public.{table} ({names})"
+        ctes.append(f"saved_{table} AS ({insert} SELECT {values} FROM {source} RETURNING {returned})")
     if native:
         receipt = """(SELECT run_id FROM saved_scrape_runs) AS run_id,
             (SELECT count(*) FROM saved_queries) AS queries,

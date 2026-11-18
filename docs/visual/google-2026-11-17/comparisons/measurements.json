@@ -1,0 +1,66 @@
+{
+  "source_title": {
+    "reference_roi": "336x24+596+68",
+    "reference_resize": "100%",
+    "scope": "identical title text only; no missing thumbnails/emphasis/snippets in this ROI",
+    "reference": {
+      "dark_foreground_bbox": {
+        "width": 155,
+        "height": 13,
+        "x": 2,
+        "y": 4
+      }
+    },
+    "before": {
+      "dark_foreground_bbox": {
+        "width": 135,
+        "height": 10,
+        "x": 2,
+        "y": 3
+      },
+      "ink_rmse": "10533.4 (0.16073)"
+    },
+    "after": {
+      "dark_foreground_bbox": {
+        "width": 156,
+        "height": 13,
+        "x": 1,
+        "y": 4
+      },
+      "ink_rmse": "8512.28 (0.129889)"
+    }
+  },
+  "organic_title": {
+    "reference_roi": "960x44+40+535",
+    "reference_resize": "62.5%",
+    "scope": "identical title text only; no missing thumbnails/emphasis/snippets in this ROI",
+    "reference": {
+      "dark_foreground_bbox": {
+        "width": 347,
+        "height": 20,
+        "x": 1,
+        "y": 4
+      }
+    },
+    "before": {
+      "dark_foreground_bbox": {
+        "width": 318,
+        "height": 19,
+        "x": 1,
+        "y": 7
+      },
+      "ink_rmse": "19498.8 (0.297533)"
+    },
+    "after": {
+      "dark_foreground_bbox": {
+        "width": 317,
+        "height": 19,
+        "x": 1,
+        "y": 5
+      },
+      "ink_rmse": "20234.5 (0.308758)"
+    },
+    "scale_caveat": "0.625 is an explicit image-space normalization of a magnified annotated screenshot, NOT a verified browser DPR or CSS scale."
+  },
+  "whole_aio_overlay": "Qualitative ONLY: missing thumbnail and emphasis, omitted later example blocks, unmapped index 3, full source text vs reference truncation, and unknown fonts cause legitimate text/wrapping differences."
+}

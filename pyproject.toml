@@ -14,6 +14,11 @@ google-aio = "run_supabase_batch:main"
 google-aio-compare = "compare_serpapi:main"
 google-aio-export = "search_export:main"
 google-aio-sql = "comparison_storage:main"
+google-aio-web = "aio_viewer.server:main"
+
+[tool.setuptools.package-data]
+aio_viewer = ["static/*.html", "static/*.css", "static/*.js"]
 
 [tool.setuptools]
+packages = ["aio_viewer"]
 py-modules = ["aio_scraper", "supabase_results", "run_supabase_batch", "serpapi_client", "compare_serpapi", "search_export", "comparison_storage", "response_sql"]

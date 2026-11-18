@@ -1,0 +1,31 @@
+{
+  "run_id": "12345678-1234-4234-8234-123456789abc",
+  "query_id": "REFERENCE-EXCERPT",
+  "query": "drop shipping",
+  "captured_at": null,
+  "hl": "en",
+  "gl": null,
+  "status": "ok",
+  "capture_status": "ok",
+  "aio_status": "present",
+  "warnings": ["Reference excerpt: documentation omits citation 3 and later list items. Organic excerpt is a separate coffee query."],
+  "aio_response": {
+    "blocks": [
+      {"type": "paragraph", "snippet": "Drop shipping is a retail model where an online store doesn't keep products in stock. When a customer buys something, the store orders it from a third-party supplier who then ships it directly to the customer. This allows businesses to operate without managing inventory or warehouse space, reducing initial investment and overhead.", "reference_indexes": [0, 1, 3]},
+      {"type": "heading", "snippet": "Here's a more detailed breakdown:"},
+      {"type": "list", "list": [
+        {"title": "No Inventory:", "snippet": "Drop shippers sell products without holding any inventory themselves.", "reference_indexes": [1, 3]},
+        {"title": "Third-Party Fulfillment:", "snippet": "They rely on a supplier (manufacturer, wholesaler, or another retailer) to handle warehousing, shipping, and fulfillment.", "reference_indexes": [2, 3]},
+        {"title": "Forwarding Orders:", "snippet": "When a customer places an order, the drop shipper forwards it to their supplier, along with the shipping address.", "reference_indexes": [2, 3]}
+      ]}
+    ],
+    "references": [
+      {"index": 0, "title": "Drop shipping - Wikipedia", "link": "https://en.wikipedia.org/wiki/Drop_shipping", "snippet": "Drop shipping is a form of retail business in which the seller accepts customer orders without keeping stock on hand. Instead, in ...", "source": "Wikipedia"},
+      {"index": 1, "title": "Drop-Shipping: What you Need to Know Before You Buy or Sell Online", "link": "https://www.michigan.gov/consumerprotection/protect-yourself/consumer-alerts/shopping/before-you-buy-or-sell-online", "snippet": "What Is Drop-Shipping? Drop-shipping is when a person or company sells goods on their website that they do not keep in stock. When...", "source": "State of Michigan (.gov)"},
+      {"index": 2, "title": "What is Dropshipping: A Comprehensive Guide for ... - FedEx", "link": "https://www.fedex.com/en-us/small-business/articles-insights/what-is-drop-shipping.html#:~:text=Dropshipping%20is%20an%20online%20retail%20fulfillment%20method,the%20ordered%20products%20directly%20to%20the%20customer.", "snippet": "Dropshipping is an online retail fulfillment method where a store doesn't keep the products it sells in stock. Instead, when a sto...", "source": "FedEx"}
+    ]
+  },
+  "organic_results": [
+    {"position": 2, "title": "The Coffee Bean & Tea Leaf | CBTL", "link": "https://www.coffeebean.com/", "displayed_link": "https://www.coffeebean.com", "source": "Coffee Bean", "snippet": "Born and brewed in Southern California since 1963, The Coffee Bean & Tea Leaf® is passionate about connecting loyal customers with carefully handcrafted ...", "sitelinks": {"inline": [{"title": "Store locator", "link": "https://www.coffeebean.com/store-locator"}, {"title": "Coffee", "link": "https://www.coffeebean.com/cafe-menu/coffee"}, {"title": "Cafe Menu", "link": "https://www.coffeebean.com/cafe-menu"}]}}
+  ]
+}

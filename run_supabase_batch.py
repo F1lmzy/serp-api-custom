@@ -54,6 +54,30 @@ class _SafeStderr:
         self.stream.flush()
 
 
+async def _capture_query(scraper, query, hl, gl):
+    """Turn only known per-query failures into native error responses.
+
+    Cancellation, filesystem failures and unexpected errors abort the batch;
+    collect_batch retains its last checkpoint and exits the browser context.
+    """
+    try:
+        return await scraper.search(query, hl, gl)
+    except (a.ChallengeDetected, a.CaptchaSolverError, a.ScrapeError) as exc:
+        code = ('CAPTCHA_REQUIRED' if isinstance(exc, a.ChallengeDetected) else
+                'CAPTCHA_SOLVER_ERROR' if isinstance(exc, a.CaptchaSolverError) else 'SCRAPE_ERROR')
+        return a._error_result(code, _safe_error(exc), query, hl, gl)
+
+
+def _capture_summary(snapshot):
+    """Validate completeness and report capture outcome, before any upload."""
+    normalized = normalize_response_snapshot(snapshot)
+    summary = {'run_id': snapshot['run_id'], **normalized['scrape_runs'][0]['metadata']}
+    summary.pop('fingerprint')
+    summary['errors'] = sum(q['status'] == 'error' for q in normalized['queries'])
+    summary['uploaded'] = False
+    return summary
+
+
 async def collect_batch(queries, prefix, *, delay=3.0, timeout_ms=90000,
                         engine=None, proxy_mode=None, hl='en', gl='us'):
     if not queries or any(not query.strip() for query in queries):
@@ -71,12 +95,7 @@ async def collect_batch(queries, prefix, *, delay=3.0, timeout_ms=90000,
     _save_snapshot(snapshot, json_path, create=True)
     async with a.GoogleAIOScraper(engine=engine, timeout_ms=timeout_ms, proxy_mode=proxy_mode) as scraper:
         for ordinal, query in enumerate(queries, start=1):
-            try:
-                result = await scraper.search(query, hl, gl)
-            except (a.ChallengeDetected, a.CaptchaSolverError, a.ScrapeError) as exc:
-                code = ('CAPTCHA_REQUIRED' if isinstance(exc, a.ChallengeDetected) else
-                        'CAPTCHA_SOLVER_ERROR' if isinstance(exc, a.CaptchaSolverError) else 'SCRAPE_ERROR')
-                result = a._error_result(code, _safe_error(exc), query, hl, gl)
+            result = await _capture_query(scraper, query, hl, gl)
             query_id = f'P{ordinal:02d}'
             snapshot['results'].append({'query_id': query_id, 'result': result})
             _save_snapshot(snapshot, json_path)
@@ -116,11 +135,7 @@ def main(argv=None):
                     a._read_query_file(args.queries) if args.queries else [args.query.strip()],
                     prefix, delay=args.delay, timeout_ms=args.timeout,
                     engine=args.browser, proxy_mode=args.proxy, hl=args.hl, gl=args.gl))
-            normalized = normalize_response_snapshot(snapshot)
-            summary = {'run_id': snapshot['run_id'], **normalized['scrape_runs'][0]['metadata']}
-            summary.pop('fingerprint')
-            summary['errors'] = sum(q['status'] == 'error' for q in normalized['queries'])
-            summary['uploaded'] = False
+            summary = _capture_summary(snapshot)
             if args.upload or args.upload_file:
                 summary.update(upload_snapshot(snapshot, os.getenv('SUPABASE_PROJECT_ID', '').strip(),
                                                os.getenv('SUPABASE_ACCESS_TOKEN', '').strip()))

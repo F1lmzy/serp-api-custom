@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import os
@@ -358,6 +359,66 @@ def _aio_state(container: Tag | None) -> tuple[str, Tag | None, str | None]:
     return "unresolved", None, "render_incomplete"
 
 
+@dataclass(frozen=True)
+class _AioWaitState:
+    """Attempt-local observation history, not browser or capture status."""
+
+    seen: bool = False
+    status: str = "absent"
+    answer_key: str | None = None
+    unchanged_since: float | None = None
+
+
+def _aio_answer_key(container: Tag, answer: Tag) -> str:
+    """Compare semantic structure and citations, not stable loading copy."""
+    return str((_answer_blocks(answer, {}),
+                [(card.get_text(" ", strip=True), [a.get("href") for a in card.select('a[href]')])
+                 for card in container.select('[data-src-id]') if not _is_hidden(card)]))
+
+
+def _advance_aio_wait(state: _AioWaitState, *, status: str, reason: str | None,
+                      answer_key: str | None, now: float, elapsed: float,
+                      budget: float) -> tuple[_AioWaitState, bool | None]:
+    """Pure polling transition. None means observe again; bool means stop.
+
+    The terminal bool means *shell seen*, NOT answer complete. Times are
+    supplied by the caller. See docs/state-flow.md for guards and budgets.
+    """
+    seen = state.seen or status != "absent"
+    unchanged_since = None
+    if status == "present":
+        unchanged_since = now if answer_key != state.answer_key else state.unchanged_since
+    updated = _AioWaitState(seen, status, answer_key, unchanged_since)
+    if status == "absent" and not seen and elapsed >= min(8.0, budget):
+        return updated, False
+    if status == "unavailable" or reason == "generation_failed":
+        return updated, True
+    if unchanged_since is not None and now - unchanged_since >= 2.0:
+        return updated, True
+    return updated, None
+
+
+def _finish_aio_wait(state: _AioWaitState) -> bool:
+    """Pure deadline decision; incomplete shells may use reload recovery."""
+    if state.seen and state.status == "absent":
+        raise ScrapeError("AI Overview container disappeared before rendering completed")
+    if state.answer_key:
+        raise ScrapeError("AI Overview answer did not stabilize within the rendering window")
+    return state.seen
+
+
+@dataclass(frozen=True)
+class _SearchAttempt:
+    response: dict
+    shell_seen: bool
+
+
+def _should_reload_aio(attempt: _SearchAttempt) -> bool:
+    # Preserve the existing policy, including a visible unavailable notice.
+    # An exception is not an attempt result and never reaches this guard.
+    return "ai_overview" not in attempt.response and attempt.shell_seen
+
+
 async def _rendered_html(page, *, aio_only: bool = False) -> str:
     """Serialize a clone, recording computed AIO visibility without changing the page.
 
@@ -466,7 +527,8 @@ _CHALLENGE_SELECTORS = (
 class ChallengeDetected(RuntimeError):
     """Google served a CAPTCHA / sorry page instead of search results."""
 
-    def __init__(self, message: str, website_url: str = "unknown", website_key: str = "", is_enterprise: bool = False):
+    def __init__(self, message: str, website_url: str = "unknown",
+                 website_key: str = "", is_enterprise: bool = False):
         self.website_url = website_url
         self.website_key = website_key
         self.is_enterprise = is_enterprise
@@ -636,7 +698,8 @@ def _captcha_http_json(url: str, data: bytes | None = None, timeout_seconds: flo
     return payload
 
 
-def _submit_and_poll_sync(api_key: str, params: dict, poll_seconds: float = 5.0, max_wait_seconds: float = 180.0) -> dict:
+def _submit_and_poll_sync(api_key: str, params: dict, poll_seconds: float = 5.0,
+                          max_wait_seconds: float = 180.0) -> dict:
     """Submit a task and poll until a token arrives or the deadline passes.
 
     Returns {"token": ..., "cookies": "..."} — worker cookies are returned by
@@ -694,7 +757,8 @@ async def solve_recaptcha_v2(api_key: str, params: dict) -> dict:
     return await loop.run_in_executor(None, partial)
 
 
-async def _maybe_solve_challenge(page, page_url: str, html: str, timeout_ms: int, solver_used: dict) -> str | None:
+async def _maybe_solve_challenge(page, page_url: str, html: str, timeout_ms: int,
+                                 solver_used: dict) -> str | None:
     """If page is a challenge, solve via 2Captcha and navigate back to /search.
 
     Returns the new page's html, or None when the page was not a challenge.
@@ -849,6 +913,8 @@ class GoogleAIOScraper:
         self._pw = None
         self.browser = None
         self.page = None
+        # Compatibility mirror only. Recovery decisions use _SearchAttempt,
+        # never mutable state left on the browser session by a prior query.
         self._aio_shell_seen = False
 
     async def __aenter__(self):
@@ -857,6 +923,21 @@ class GoogleAIOScraper:
         if self.proxy and self.engine == "chromium":
             print("[proxy] Chromium navigation through a proxy may hang. Use --proxy direct or GOOGLE_AIO_BROWSER=firefox with a separate profile.", file=sys.stderr)
         self._pw = await async_playwright().start()
+        try:
+            await self._launch_browser()
+            pages = getattr(self.browser, "pages", [])
+            self.page = pages[0] if pages else await self.browser.new_page()
+        except BaseException:
+            # __aexit__ is not invoked when __aenter__ fails. Release partial
+            # ownership here, without replacing the original startup error.
+            try:
+                await self.__aexit__(None, None, None)
+            except Exception:
+                pass
+            raise
+        return self
+
+    async def _launch_browser(self):
         # A persistent profile keeps Google's session cookies across runs, so
         # after one successful solve subsequent searches reuse the session and
         # skip the challenge entirely (saves 2Captcha credits).
@@ -880,75 +961,58 @@ class GoogleAIOScraper:
                 self.browser = await browser_launcher.launch(headless=self.headless, proxy=self.proxy)
         except Exception as exc:
             raise ScrapeError(f"Browser launch failed ({self.engine}); install it with `playwright install {self.engine}`") from exc
-        pages = getattr(self.browser, "pages", [])
-        self.page = pages[0] if pages else await self.browser.new_page()
-        return self
 
     async def __aexit__(self, exc_type, exc, tb):
+        browser, pw = self.browser, self._pw
+        self.browser = self.page = self._pw = None
         try:
-            if self.browser is not None:
-                await self.browser.close()
+            if browser is not None:
+                await browser.close()
         finally:
-            self.browser = self.page = None
-            if self._pw is not None:
-                await self._pw.stop()
+            if pw is not None:
+                await pw.stop()
 
     async def _wait_for_aio_answer(self, page, max_wait_ms: int = 20000) -> bool:
         """Wait for a real answer or visible refusal, never stable loading text.
 
         Observe delayed containers for up to 8s; once seen, use the full budget.
         Unfinished shells remain unresolved for the bounded reload/retry policy.
+        Return whether a shell was seen, not whether extraction succeeded.
         """
         start = time.monotonic()
         deadline = start + max_wait_ms / 1000
-        seen = False
-        status = "absent"
-        previous = None
-        unchanged_since = None
+        state = _AioWaitState()
         while time.monotonic() < deadline:
             soup = BeautifulSoup(await _rendered_html(page, aio_only=True), "html.parser")
             container = soup.select_one("#eKIzJc")
-            seen = seen or container is not None
             status, answer, reason = _aio_state(container)
             now = time.monotonic()
-            if status == "absent":
-                if not seen and now - start >= min(8.0, max_wait_ms / 1000):
-                    return False
-            elif status == "unavailable" or reason == "generation_failed":
-                return True
-            if status == "present":
-                # Include semantic structure and citations, not only plain text.
-                key = str((_answer_blocks(answer, {}),
-                           [(card.get_text(" ", strip=True), [a.get("href") for a in card.select('a[href]')])
-                            for card in container.select('[data-src-id]') if not _is_hidden(card)]))
-                if key != previous:
-                    unchanged_since = now
-                elif unchanged_since is not None and now - unchanged_since >= 2.0:
-                    return True
-                previous = key
-            else:
-                previous = None
-                unchanged_since = None
+            key = _aio_answer_key(container, answer) if status == "present" else None
+            state, shell_seen = _advance_aio_wait(
+                state, status=status, reason=reason, answer_key=key,
+                now=now, elapsed=now - start, budget=max_wait_ms / 1000,
+            )
+            if shell_seen is not None:
+                return shell_seen
             await page.wait_for_timeout(400)
-        if seen and status == "absent":
-            raise ScrapeError("AI Overview container disappeared before rendering completed")
-        if previous:
-            raise ScrapeError("AI Overview answer did not stabilize within the rendering window")
-        return seen
+        return _finish_aio_wait(state)
 
     async def search(self, query: str, hl: str = "en", gl: str = "us") -> dict:
         """Scrape one query with this session, including organic results."""
         page = self.page
         url = f"https://www.google.com/search?q={quote_plus(query)}&hl={quote_plus(hl)}&gl={quote_plus(gl)}"
-        result = await self._search_once(page, url, query, hl, gl)
-        if "ai_overview" not in result and self._aio_shell_seen:
-            # A container rendered but its answer never streamed in. One
-            # reload usually gets Google to serve the full AIO.
+        attempt = await self._search_attempt(page, url, query, hl, gl)
+        if _should_reload_aio(attempt):
             print("[scrape] AIO shell seen but empty; retrying the query once", file=sys.stderr)
-            result = await self._search_once(page, url, query, hl, gl, poll_ms=30000)
-        return result
+            attempt = await self._search_attempt(page, url, query, hl, gl, poll_ms=30000)
+        return attempt.response
 
     async def _search_once(self, page, url: str, query: str, hl: str, gl: str, poll_ms: int = 20000) -> dict:
+        """Compatibility response-only entry; search owns its attempt locally."""
+        return (await self._search_attempt(page, url, query, hl, gl, poll_ms)).response
+
+    async def _search_attempt(self, page, url: str, query: str, hl: str, gl: str,
+                              poll_ms: int = 20000) -> _SearchAttempt:
         requested_at = datetime.now(timezone.utc).isoformat()
         stage = "navigation"
         try:
@@ -957,9 +1021,13 @@ class GoogleAIOScraper:
             await page.wait_for_timeout(min(1500, self.timeout_ms // 4))
             solver_used: dict = {}
             stage = "challenge handling"
-            html = await _maybe_solve_challenge(page, page.url, await page.content(), self.timeout_ms, solver_used) or await page.content()
+            initial_html = await page.content()
+            html = await _maybe_solve_challenge(page, page.url, initial_html, self.timeout_ms, solver_used)
+            if not html:
+                html = await page.content()
             stage = "AI Overview rendering"
-            self._aio_shell_seen = await self._wait_for_aio_answer(page, poll_ms)
+            shell_seen = await self._wait_for_aio_answer(page, poll_ms)
+            self._aio_shell_seen = shell_seen  # historical observation, never a recovery input
             more = page.get_by_role("button", name=re.compile("show more ai overview", re.I))
             if await more.count():
                 try:
@@ -981,7 +1049,7 @@ class GoogleAIOScraper:
         result = parse_search_html(html, query, hl, gl)
         result["search_metadata"] = {"created_at": requested_at}
         result["search_parameters"].update({"device": "desktop", "google_domain": "google.com"})
-        return result
+        return _SearchAttempt(result, shell_seen)
 
 
 async def scrape(query: str, hl: str = "en", gl: str = "us", timeout_ms: int = 30000,

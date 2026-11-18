@@ -21,7 +21,8 @@ import urllib.request
 import uuid
 
 from response_sql import TABLE_COLUMNS, UPLOAD_SQL as COMPARISON_UPLOAD_SQL, RUN_UPLOAD_SQL as UPLOAD_SQL
-from search_export import MEDIA_KEYS, DROP_SECTIONS, _all_reference_indexes, normalize_response
+from search_export import (MEDIA_KEYS, DROP_SECTIONS, _all_reference_indexes,
+                          capture_status_for_aio, normalize_response)
 from serpapi_client import sanitize
 
 _MANAGEMENT_HOST = "https://api.supabase.com"
@@ -201,7 +202,8 @@ def render_text(node, depth=0, item=False):
         if key in node:
             if not isinstance(node[key], list):
                 raise ValueError('list items must be arrays')
-            lines.extend(render_text(v, depth + int(item and bool(node.get('snippet'))), True) for v in node[key])
+            nested_depth = depth + int(item and bool(node.get('snippet')))
+            lines.extend(render_text(v, nested_depth, True) for v in node[key])
     return '\n'.join(filter(None, lines))
 
 
@@ -411,12 +413,7 @@ def normalize_response_snapshot(snapshot):
             if any(warning.startswith('invalid_') for warning in record['warnings']):
                 raise ValueError('native response contains malformed scoped content')
             record['provenance']['run_index'] = snapshot.get('run_index', 1)
-            if record['aio_status'] in ('invalid', 'error'):
-                record['capture_status'] = 'error'
-            elif record['aio_status'] in ('empty', 'unresolved'):
-                record['capture_status'] = 'unresolved'
-            else:
-                record['capture_status'] = 'ok'
+            record['capture_status'] = capture_status_for_aio(record['aio_status'])
             records.append(record)
         tables = normalize_records(records, run_id, snapshot.get('label', ''))
         run = tables['scrape_runs'][0]
@@ -460,16 +457,19 @@ def execute_sql(query, parameters=None, *, project_id, access_token, read_only=F
         raise ValueError('invalid SUPABASE_PROJECT_ID')
     if not isinstance(access_token, str) or not access_token.strip():
         raise ValueError('SUPABASE_ACCESS_TOKEN is required')
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
+    if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout) or timeout <= 0):
         raise ValueError('invalid SQL request timeout')
     body = _dump({'query': query, 'parameters': parameters or [], 'read_only': read_only}).encode()
     try:
         result = json.loads(_post_sql(body, project_id, access_token, timeout))
     except urllib.error.HTTPError as exc:
         exc.close()
-        raise ValueError(f'Supabase SQL request failed: HTTP {exc.code}; inspect the saved batch before retrying writes') from None
+        raise ValueError(
+            f'Supabase SQL request failed: HTTP {exc.code}; inspect the saved batch before retrying writes') from None
     except (OSError, urllib.error.URLError, ValueError) as exc:
-        raise ValueError(f'Supabase SQL transport/response failed ({type(exc).__name__}); do not retry an uncertain write automatically') from None
+        raise ValueError(
+            f'Supabase SQL transport/response failed ({type(exc).__name__}); do not retry an uncertain write automatically') from None
     if not isinstance(result, list):
         raise ValueError('unexpected SQL response')
     return result
@@ -483,7 +483,8 @@ def upload_records(records, comparison_id, project_id, access_token, label='', *
     """
     execute = execute_sql if executor is None else executor
     tables = normalize_records(records, comparison_id, label)
-    receipt = execute(COMPARISON_UPLOAD_SQL, [_dump(tables)], project_id=project_id, access_token=access_token)
+    receipt = execute(COMPARISON_UPLOAD_SQL, [_dump(tables)],
+                      project_id=project_id, access_token=access_token)
     expected = {'comparison_id': comparison_id, **{t: len(rows) for t, rows in tables.items()}}
     if (receipt != [expected] or not isinstance(receipt[0], dict)
             or any(type(receipt[0].get(t)) is not int for t in TABLE_COLUMNS)):

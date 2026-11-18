@@ -1,0 +1,289 @@
+{
+  "run_id": "4d20da72-f540-4fbd-9174-6f2842537924",
+  "query_id": "PAP01-01-V1",
+  "ordinal": 1,
+  "query": "effects of Federal Reserve interest rate increases on inflation in the United States",
+  "hl": "en",
+  "gl": "us",
+  "status": "ok",
+  "error_code": null,
+  "error_message": null,
+  "snapshot_id": "4d20da72-f540-4fbd-9174-6f2842537924:PAP01-01-V1",
+  "captured_at": "2026-11-12T07:38:57.005894+00:00",
+  "capture_status": "ok",
+  "aio_status": "present",
+  "device": "desktop",
+  "google_domain": "google.com",
+  "warnings": [
+    "opaque_google_redirect_url"
+  ],
+  "response_schema_version": 1,
+  "aio_response": {
+    "paragraph": "When the Federal Reserve increases interest rates, it raises borrowing costs across the economy, which cools overall demand and helps bring down high inflation . For more details on how monetary policy interacts with prices, see the Federal Reserve FAQ on Inflation and Employment and Investopedia's Guide on Inflation and Interest Rates .",
+    "text": "When the Federal Reserve increases interest rates, it raises borrowing costs across the economy, which cools overall demand and helps bring down high inflation .\n\nHow Rate Hikes Lower Inflation\n\n• Higher Borrowing Costs: The Fed raises the federal funds rate (the benchmark overnight bank lending rate), which pushes up prime rates, credit card APRs, auto loans, and mortgages.\n• Reduced Spending and Demand: More expensive credit discourages households and businesses from taking out loans for major purchases, housing, or business expansions. As demand for goods and services drops, upward pressure on prices and wages eases.\n• Encouraged Saving: Higher rates increase yields on savings accounts, certificates of deposit (CDs), and money market funds, prompting consumers to save more and spend less.\n\nLimitations and Side Effects\n\n• Economic Lags: The impact of rate changes does not happen overnight. It typically takes time for tighter financial conditions to ripple through the entire economy, meaning the Fed must project future trends rather than react solely to past data.\n• Uneven Sector Impact: Rate-sensitive industries—such as housing and auto manufacturing—tend to absorb the brunt of the slowdown, whereas service-sector inflation can remain sticky and persistent.\n• Broader Risks: Aggressive tightening can slow economic growth, raise the unemployment rate, increase debt servicing burdens, and strain the financial or banking sectors.\n\nFor more details on how monetary policy interacts with prices, see the Federal Reserve FAQ on Inflation and Employment and Investopedia's Guide on Inflation and Interest Rates .",
+    "blocks": [
+      {
+        "type": "paragraph",
+        "snippet": "When the Federal Reserve increases interest rates, it raises borrowing costs across the economy, which cools overall demand and helps bring down high inflation .",
+        "reference_indexes": [
+          3
+        ],
+        "snippet_links": [
+          {
+            "link": "https://www.google.com/url?sa=i&source=web&url=CAESgAEBxCJF1ycfI97j-C536LOhB_05M57lLiCjAbJ2U30Ep36ENFCeFUQcyUsS7uMd4UHBAJ1TyccOjiqpgYo17FBHtDQCjwhzF2oBB9yq2Wz7Dsl-gOLttnWmhd3EluEFR0oTuUnmQBrm8sfIg0hoYE1u6sLUHsiSeG2gaVGFgJm5jw&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQr8wVegoIAggACAEICBAC&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000"
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "snippet": "How Rate Hikes Lower Inflation"
+      },
+      {
+        "type": "list",
+        "list": [
+          {
+            "snippet": "Higher Borrowing Costs: The Fed raises the federal funds rate (the benchmark overnight bank lending rate), which pushes up prime rates, credit card APRs, auto loans, and mortgages.",
+            "reference_indexes": [
+              1
+            ],
+            "snippet_links": [
+              {
+                "link": "https://www.google.com/url?sa=i&source=web&url=CAESkQEBxCJF1yeujOODA7OqtuQ6iqVgydcntL0qGRoc_gb3RenMk3RTacYpdJWgpZwAKfd5hZgKlKEq1mt1Dsib1qwfYlOUKeqgZmK4RnU4J1IITxSaQvJN0XYtL3rWama2VzGkxkU329UOfYQscsl_Myo8JxzpvnrpQIgVvwznEDrwMVEDj5qFXL7Bk9gXgK8M8Qep&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQr8wVegoIAggACAEIERAD&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000"
+              }
+            ]
+          },
+          {
+            "snippet": "Reduced Spending and Demand: More expensive credit discourages households and businesses from taking out loans for major purchases, housing, or business expansions. As demand for goods and services drops, upward pressure on prices and wages eases.",
+            "reference_indexes": [
+              0
+            ],
+            "snippet_links": [
+              {
+                "link": "https://www.google.com/url?sa=i&source=web&url=CAEScAHEIkXXfMuhgoT1KrAWlIL3LWrXUe3PLuJBro4zdTmihWgOF1yIrO2HygLOecVfIw9hm-It6O09Z7AhHyFD4UGHj8zPwm1u8qHulROq_TVV8LymldBbGHqjnjrJsVI8eXSTeI2lBdJQVmDEXLO092Q&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQr8wVegoIAggACAEIERAJ&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000"
+              }
+            ]
+          },
+          {
+            "snippet": "Encouraged Saving: Higher rates increase yields on savings accounts, certificates of deposit (CDs), and money market funds, prompting consumers to save more and spend less.",
+            "reference_indexes": [
+              2
+            ],
+            "snippet_links": [
+              {
+                "link": "https://www.google.com/url?sa=i&source=web&url=CAESqQEBxCJF13Mg6iJ32u2B3BcvkXxJnDgcvVeZQZP7wBI7wuZ0aGVKnrKJzbWcxsGUDvt4kcCyVnTje4GiRdMN-eNupi09wE7FgA64L5u6RfIfyyxNhENJUU4wdXiChO6edhTT4z-oAJbrlmP3dbvvUGDujXtnAzgRS3cBMCl0cazaG-9ehLxAgNRbsw6-f6a4ir8hFydJymQ1V7B3sr07lNPwgeOtow_IuMaJ&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQr8wVegoIAggACAEIERAP&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "snippet": "Limitations and Side Effects"
+      },
+      {
+        "type": "list",
+        "list": [
+          {
+            "snippet": "Economic Lags: The impact of rate changes does not happen overnight. It typically takes time for tighter financial conditions to ripple through the entire economy, meaning the Fed must project future trends rather than react solely to past data.",
+            "reference_indexes": [
+              1
+            ],
+            "snippet_links": [
+              {
+                "link": "https://www.google.com/url?sa=i&source=web&url=CAESkQEBxCJF1yeujOODA7OqtuQ6iqVgydcntL0qGRoc_gb3RenMk3RTacYpdJWgpZwAKfd5hZgKlKEq1mt1Dsib1qwfYlOUKeqgZmK4RnU4J1IITxSaQvJN0XYtL3rWama2VzGkxkU329UOfYQscsl_Myo8JxzpvnrpQIgVvwznEDrwMVEDj5qFXL7Bk9gXgK8M8Qep&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQr8wVegoIAggACAEIGRAD&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000"
+              }
+            ]
+          },
+          {
+            "snippet": "Uneven Sector Impact: Rate-sensitive industries—such as housing and auto manufacturing—tend to absorb the brunt of the slowdown, whereas service-sector inflation can remain sticky and persistent.",
+            "reference_indexes": [
+              1
+            ],
+            "snippet_links": [
+              {
+                "link": "https://www.google.com/url?sa=i&source=web&url=CAESkQEBxCJF1yeujOODA7OqtuQ6iqVgydcntL0qGRoc_gb3RenMk3RTacYpdJWgpZwAKfd5hZgKlKEq1mt1Dsib1qwfYlOUKeqgZmK4RnU4J1IITxSaQvJN0XYtL3rWama2VzGkxkU329UOfYQscsl_Myo8JxzpvnrpQIgVvwznEDrwMVEDj5qFXL7Bk9gXgK8M8Qep&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQr8wVegoIAggACAEIGRAJ&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000"
+              }
+            ]
+          },
+          {
+            "snippet": "Broader Risks: Aggressive tightening can slow economic growth, raise the unemployment rate, increase debt servicing burdens, and strain the financial or banking sectors.",
+            "reference_indexes": [
+              6
+            ],
+            "snippet_links": [
+              {
+                "link": "https://www.google.com/url?sa=i&source=web&url=CAEShAEBxCJF1x52VmKuTYwUboBvgRfh37HXgkVQRON-tdUbiKX9e8rjBoEO1b1ayGzPDuyoeaI-1RqZjX3QqNgWPl3mc7O4l2F1BmBmEIcIQR_B6oNdz6qK0E2-32oGVKY4_DtqUbY5-XTMYUOQ3405KmQyHOmTDqYITRF4PAa0g-xG47WuBhA&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQr8wVegoIAggACAEIGRAP&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "snippet": "For more details on how monetary policy interacts with prices, see the Federal Reserve FAQ on Inflation and Employment and Investopedia's Guide on Inflation and Interest Rates .",
+        "reference_indexes": [
+          0,
+          1
+        ],
+        "snippet_links": [
+          {
+            "text": "Federal Reserve FAQ on Inflation and Employment",
+            "link": "https://www.google.com/url?sa=i&source=web&url=CAEScAHEIkXXfMuhgoT1KrAWlIL3LWrXUe3PLuJBro4zdTmihWgOF1yIrO2HygLOecVfIw9hm-It6O09Z7AhHyFD4UGHj8zPwm1u8qHulROq_TVV8LymldBbGHqjnjrJsVI8eXSTeI2lBdJQVmDEXLO092Q&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQy_kOegoIAggACAEIHBAC&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000"
+          },
+          {
+            "text": "Investopedia's Guide on Inflation and Interest Rates",
+            "link": "https://www.google.com/url?sa=i&source=web&url=CAESkQEBxCJF1yeujOODA7OqtuQ6iqVgydcntL0qGRoc_gb3RenMk3RTacYpdJWgpZwAKfd5hZgKlKEq1mt1Dsib1qwfYlOUKeqgZmK4RnU4J1IITxSaQvJN0XYtL3rWama2VzGkxkU329UOfYQscsl_Myo8JxzpvnrpQIgVvwznEDrwMVEDj5qFXL7Bk9gXgK8M8Qep&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQy_kOegoIAggACAEIHBAD&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000"
+          }
+        ]
+      }
+    ],
+    "references": [
+      {
+        "ordinal": 1,
+        "index": 0,
+        "link": "https://www.google.com/url?sa=i&source=web&url=CAEScAHEIkXXfMuhgoT1KrAWlIL3LWrXUe3PLuJBro4zdTmihWgOF1yIrO2HygLOecVfIw9hm-It6O09Z7AhHyFD4UGHj8zPwm1u8qHulROq_TVV8LymldBbGHqjnjrJsVI8eXSTeI2lBdJQVmDEXLO092Q&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQzM0VegoIAggACAEIIRAC&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000",
+        "title": "How does the Federal Reserve affect inflation and employment?",
+        "source": "How does the Federal Reserve affect inflation and employment?"
+      },
+      {
+        "ordinal": 2,
+        "index": 1,
+        "link": "https://www.google.com/url?sa=i&source=web&url=CAESkQEBxCJF1yeujOODA7OqtuQ6iqVgydcntL0qGRoc_gb3RenMk3RTacYpdJWgpZwAKfd5hZgKlKEq1mt1Dsib1qwfYlOUKeqgZmK4RnU4J1IITxSaQvJN0XYtL3rWama2VzGkxkU329UOfYQscsl_Myo8JxzpvnrpQIgVvwznEDrwMVEDj5qFXL7Bk9gXgK8M8Qep&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQzM0VegoIAggACAEIIRAG&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000",
+        "title": "Exploring How Inflation and Interest Rates Interact",
+        "source": "Exploring How Inflation and Interest Rates Interact"
+      },
+      {
+        "ordinal": 3,
+        "index": 2,
+        "link": "https://www.google.com/url?sa=i&source=web&url=CAESqQEBxCJF13Mg6iJ32u2B3BcvkXxJnDgcvVeZQZP7wBI7wuZ0aGVKnrKJzbWcxsGUDvt4kcCyVnTje4GiRdMN-eNupi09wE7FgA64L5u6RfIfyyxNhENJUU4wdXiChO6edhTT4z-oAJbrlmP3dbvvUGDujXtnAzgRS3cBMCl0cazaG-9ehLxAgNRbsw6-f6a4ir8hFydJymQ1V7B3sr07lNPwgeOtow_IuMaJ&uoh=2&ved=2ahUKEwiYmJq89oGYAxVwyzgGHallNfIQzM0VegoIAggACAEIIRAL&opi=89978449&cd&psig=AOvVaw2uHJLseWYqYVnwI_qzTAHR&ust=1794555537910000",
+        "title": "How does the Federal Reserve interest rate affect me? | Discover",
+        "source": "Discover"
+      },
+      {
+        "ordinal": 4,
+        "index": 3,
+        "link": "https://www.google.com/url?sa=t&source=web&url=CAESgAEBxCJF1ycfI97j-C536LOhB_05M57lLiCjAbJ2U30Ep36ENFCeFUQcyUsS7uMd4UHBAJ1TyccOjiqpgYo17FBHtDQCjwhzF2oBB9yq2Wz7Dsl-gOLttnWmhd3EluEFR0oTuUnmQBrm8sfIg0hoYE1u6sLUHsiSeG2gaVGFgJm5jw&uoh=2&ved=0CAEQn84VahcKEwiQzre99oGYAxUAAAAAHQAAAAAQDQ&opi=89978449",
+        "title": "When the Fed raises the federal funds rate",
+        "source": "When the Fed raises the federal funds rate"
+      },
+      {
+        "ordinal": 5,
+        "index": 4,
+        "link": "https://www.google.com/url?sa=t&source=web&url=CAESowEBxCJF10wx8OilzqccaXYqD9APBR2Y57w5LUkBCPEqNxKti2CjNDqHN9Mjsmfrs8_wPbMYxXKEJwBt4rFUCuI4o3zkUAQ8TQhuvhdYbnH88Lt9lBr7r0rK6fm3bUHnfz2Hw9-XFWw4mVQF4lE-JH13Za8c4STvNh3XYAW0Msyq6iha3IrkutPMq9DrYi2bgqTkUjaRNukXbyxZctW48345v7nq&uoh=2&ved=0CAYQn84VahcKEwiQzre99oGYAxUAAAAAHQAAAAAQDQ&opi=89978449",
+        "title": "How Does Raising Interest Rates Help Inflation?",
+        "source": "How Does Raising Interest Rates Help Inflation?"
+      },
+      {
+        "ordinal": 6,
+        "index": 5,
+        "link": "https://www.google.com/url?sa=t&source=web&url=CAEStQEBxCJF11QYMgwDl8mB7doE45rF3Y2hCmEczJPLSbJRxUjUky6Il8la0etf29p5BcN3t27QdF9of6xVKZuLxViygLRwXVtHdtK_trKr4rzEXFEl2p8v7kMbnBqChxoZnKuSQ36QKGVahnK-Xet5Ra6x3KcR7AqniIo9DcpyO96G_OKaxeK9romx5DLebZs1-fgDsEtdFPdJ6NARiiAQNWTgF85innUEWC9wyQav7sjv8vD9joJy&uoh=2&ved=0CAsQn84VahcKEwiQzre99oGYAxUAAAAAHQAAAAAQDQ&opi=89978449",
+        "title": "Fed Interest Rate Changes: How Does This Impact Your Personal Finances? | Macatawa Bank, N.A.",
+        "source": "Macatawa Bank, N.A."
+      },
+      {
+        "ordinal": 7,
+        "index": 6,
+        "link": "https://www.google.com/url?sa=t&source=web&url=CAEShAEBxCJF1x52VmKuTYwUboBvgRfh37HXgkVQRON-tdUbiKX9e8rjBoEO1b1ayGzPDuyoeaI-1RqZjX3QqNgWPl3mc7O4l2F1BmBmEIcIQR_B6oNdz6qK0E2-32oGVKY4_DtqUbY5-XTMYUOQ3405KmQyHOmTDqYITRF4PAa0g-xG47WuBhA&uoh=2&ved=0CBAQn84VahcKEwiQzre99oGYAxUAAAAAHQAAAAAQDQ&opi=89978449",
+        "title": "Impact of higher federal funds rates on bank risk during higher ...",
+        "source": "Impact of higher federal funds rates on bank risk during higher ..."
+      },
+      {
+        "ordinal": 8,
+        "index": 7,
+        "link": "https://www.google.com/url?sa=t&source=web&url=CAESfwHEIkXXEQKF4AAibRhAkJm-oy72HpIH8GaTDhm9fjUwdIwkz99lCs0afn1q8G8AuN83BPKqT-DyvS-0jZ6F2FeX5kYHfDgSME3cwr85VECD30EeW0xdI2BnXMX21U1aRbFzuC9UOEcxIYO7ykoAlX_F2_rmbe8qU4bV3AsNIuE&uoh=2&ved=0CBUQn84VahcKEwiQzre99oGYAxUAAAAAHQAAAAAQDQ&opi=89978449",
+        "title": "Federal Funds Rate History 1990 to 2026 – Forbes Advisor",
+        "source": "Forbes Advisor"
+      },
+      {
+        "ordinal": 9,
+        "index": 8,
+        "link": "https://www.google.com/url?sa=t&source=web&url=CAESfgHEIkXXItLgSKJgL5IeUy2lwm1mf0g-ieF4_MOGCxC1mFi2XkXe721kp2qkvnwsgTk5N-obyLJv4QL2RJPF8pOiWih-ppt5Fus9wzc8zAePCmUyu5l6vL9TQoSweo3G3Etx_ItqBfZuQffskzsnsjvAwBp4gYuAMn07ZD-T1g&uoh=2&ved=0CBoQn84VahcKEwiQzre99oGYAxUAAAAAHQAAAAAQDQ&opi=89978449",
+        "title": "Global Implications of the Fed’s Rate Hikes | FSI",
+        "source": "FSI"
+      }
+    ]
+  },
+  "organic_results": [
+    {
+      "ordinal": 1,
+      "position": 1,
+      "link": "https://www.google.com/goto?url=CAEScAHEIkXXlJf1pszGkKstZOXlQla39YbQcmV9IzS_G1R7TOh8p9LEuw61VmmDZ3mdmCCgab1CiJG1SyrQgAm4V50_GDCqtb0CrzAYNAlwT5e2iHkBDoVERUxrgQ-Oi3kCR7FvKtvQTghhWkXBqJ8arDw&gsessionid=QGUzXfZDdG-fUCsPQVICJVxtxaPwqU2Zl5VhXidJYmm7Cuv7jRQA1g",
+      "title": "How does the Federal Reserve affect inflation and ...",
+      "snippet": "Jul 19, 2024 — Changes in the federal funds rate influence other interest rates that in turn influence borrowing costs for households and businesses as well as ... Read more",
+      "displayed_link": "https://www.federalreserve.gov › faqs › money_12856",
+      "source": "Federal Reserve (.gov)"
+    },
+    {
+      "ordinal": 2,
+      "position": 2,
+      "link": "https://www.google.com/goto?url=CAESgAEBxCJF13ZqTgGi-aC8qNvKuWY-L-z9idsjTjEgmbeKqapsZyBO7RW2I-j7mmNL2lRSYJZI5dI7lo6w1XVbyZ4JAfx3qRdUnlVhOJ3twqmBvIdAQuWaGfqL4_CCvaf-1gsU0ujl8rBJSBHjkF5vA6Igo27_CfKQpOmktMKefYp3Fw&gsessionid=QGUzXfZDdG-fUCsPQVICJVxtxaPwqU2Zl5VhXidJYmm7Cuv7jRQA1g",
+      "title": "When the Fed raises the federal funds rate",
+      "snippet": "When the Fed raises the federal funds rate , it reduces interest -sensitive spending, causing overall demand (spending) to cool off and inflation to fall, all ... Read more",
+      "displayed_link": "https://www.congress.gov › HTML",
+      "source": "Congress.gov"
+    },
+    {
+      "ordinal": 3,
+      "position": 3,
+      "link": "https://www.google.com/goto?url=CAESkQEBxCJF1_OVm8PPlwTO_VRW6-f4iMiDL0YS6EXfSK7wqkDMR1WA3qVTNZ8Yi0WTQDGmjJ11koRVFPx2VSFCvHV6KqhGaSEcuBMDrUuLkS-W1ew_xzohNUpLubWh-uNoe7VSkVzK9o4SLuZgSmjBPVZ7cJxDOUGVCMzbA9D9D7p-XrYg9EvCyrUNiJi9i-Clol6q&gsessionid=QGUzXfZDdG-fUCsPQVICJVxtxaPwqU2Zl5VhXidJYmm7Cuv7jRQA1g",
+      "title": "Exploring How Inflation and Interest Rates Interact",
+      "snippet": "Interest rates influence borrowing costs , affecting consumer and business spending, thus moderating inflation. The federal funds rate is pivotal for central ... Read more",
+      "displayed_link": "https://www.investopedia.com › Economy › Economics",
+      "source": "Investopedia"
+    },
+    {
+      "ordinal": 4,
+      "position": 4,
+      "link": "https://www.google.com/goto?url=CAESqQEBxCJF17xjdCZo3f3t0XNbSTpb42sTNM610SLA8zVPjFtDlu7_hbtTn3_sOqEfzBFVcJRirXeB6aFOZBtckz834LvB23F-a8lWTyugNRfJIWQqah3sD07o3x8cFN0cSmDwcS904AhEuWaBPicSQdHxs9OBWzl2T9aqLceJULV1lJ2hth4M9HV7GlnxmJkkrRo7U65-ZgqP4ppwcWOWcMFk0ZTDzrBoIkR2&gsessionid=QGUzXfZDdG-fUCsPQVICJVxtxaPwqU2Zl5VhXidJYmm7Cuv7jRQA1g",
+      "title": "How does the Federal Reserve interest rate affect me?",
+      "snippet": "Dec 15, 2025 — By raising or lowering interest rates, the Fed tries to influence the cost of borrowing money, which can curb or boost inflation . major ...",
+      "displayed_link": "https://www.discover.com › banking-topics › how-does-t...",
+      "source": "Discover"
+    },
+    {
+      "ordinal": 5,
+      "position": 5,
+      "link": "https://www.google.com/goto?url=CAESowEBxCJF18A8ZYn_TxcHxkwuWVGDPkqbzy4ReOBoF7MlHJFe2ZIxkzsPZiATojUEqKdt__q1DPQC4BaL23VTeiyNcmcaJFGXvZq_C7aAu6u1t3D9QINFDUP7b1SDwfaQ3nMOYl09tn3p3CfhKnP7yk79p9K3RtR7BE40q0aOcoeWGLy_eZ-JSXva85gbokjHsfD73XP-oE77aw2XTE4fMmBAy70p&gsessionid=QGUzXfZDdG-fUCsPQVICJVxtxaPwqU2Zl5VhXidJYmm7Cuv7jRQA1g",
+      "title": "How Does Raising Interest Rates Help Inflation?",
+      "snippet": "When the central bank increases interest rates, borrowing becomes more expensive . This slows down spending, typically lowering overall demand and hopefully ...",
+      "displayed_link": "https://www.chase.com › ... › Banking basics",
+      "source": "Chase Bank"
+    },
+    {
+      "ordinal": 6,
+      "position": 6,
+      "link": "https://www.google.com/goto?url=CAES4AEBxCJF17vFqrEIIuS0rNTTsNEI4PiDjVVqYURBwN4nzrxXu_ZpWaNHiihFn2FJimlGWHGnsdQKhPFNp5r7QOsmMi1bCMnhSb3KtFnoCKKe6vbS4WQfBH-av_Pu1ciuzXcabU2Gq99drjGEhX1ROirsOIYXF_BjPLNOmB3oVFUvXuSUW-Fjtacl2zuFVZKzovZcZ_y0YiFFfoPIDSu1EHHRzAA8JI7uS7kZfCdhM0Hap-sEASbBD_sflHcioN5a2xatYm1tyjkYFI960SL5VOPca5C7H_I1MJ89GVoOanefvA&gsessionid=QGUzXfZDdG-fUCsPQVICJVxtxaPwqU2Zl5VhXidJYmm7Cuv7jRQA1g",
+      "title": "What is the relationship between inflation, interest rates ...",
+      "snippet": "by J Robbins — And political pressure on the Fed from the president has been shown to empirically increase inflation with no impact on economic growth . Read more",
+      "displayed_link": "https://equitablegrowth.org › what-is-the-relationship-bet...",
+      "source": "Equitable Growth"
+    },
+    {
+      "ordinal": 7,
+      "position": 7,
+      "link": "https://www.google.com/goto?url=CAEShAEBxCJF1yLFLQWPVsq1zhEGlMKkajQ5j7mF4NW9i3aRsCIclzOgqQ7HxuEP5c2i_-9H59AI8mzFLew6BOUeWp4tOoXDTzV_DeK21Hp13x8-dO4J8QZv0kktBxorpvAkPLNCcQ4ZbPy5HWR6WWovd8eQcgFdi-hfRIoQcasGtO0j1dd_324&gsessionid=QGUzXfZDdG-fUCsPQVICJVxtxaPwqU2Zl5VhXidJYmm7Cuv7jRQA1g",
+      "title": "Impact of higher federal funds rates on bank risk during ...",
+      "snippet": "by JA Koch 2024 Cited by 9 — Overall, higher fed funds rates adversely impact U.S. bank risk during higher inflation rate . •. The impact of fed funds rate is heterogeneous among banks. •. Read more",
+      "displayed_link": "https://www.sciencedirect.com › article › abs › pii",
+      "source": "ScienceDirect.com"
+    },
+    {
+      "ordinal": 8,
+      "position": 8,
+      "link": "https://www.google.com/goto?url=CAEStQEBxCJF1y-6CVGOFmFXV_ddtG-eHROVHdfs_7F8UsY63y-StcAOhXgTEr-OfWyqMtEHuq-vgOBGwq4VFcJWWbu9WOkfW1b65-DyHqKnvKe6W-sBp_SM9T6h3_ORzO14OwnMjl4G6Amdv3snOhp76TJGapM7T2hTZZkiCcuZIqNkIvdkyneVeQM2yqRgCyZizKOnC2hfe-cAsgyqtsIuay7gzPf_CbAQPq_2NCnL4sZlxX-_UXjf&gsessionid=QGUzXfZDdG-fUCsPQVICJVxtxaPwqU2Zl5VhXidJYmm7Cuv7jRQA1g",
+      "title": "Fed Interest Rate Changes: How Does This Impact Your ...",
+      "snippet": "When inflation is too high, the Fed can raise the rate to help slow the economy and attempt to lower inflation .",
+      "displayed_link": "https://www.macatawabank.com › articles › 2022/09 › f...",
+      "source": "Macatawa Bank"
+    },
+    {
+      "ordinal": 9,
+      "position": 9,
+      "link": "https://www.google.com/goto?url=CAESfwHEIkXXEYvgskpwJXLYmSS1Ffp_NWCG-sU0R47uyJBrWfyCirnPRk6-fTDXUGjdm-c_kqWzsn56ACVZOOQUtVHYNhtkdF6cBf2uJYZoYF7akxdTGSortd34VMkjrjx6F_Wqk2uxJEDfOFhHyclqndNNkea6ZekhYzbeCqCutzw&gsessionid=QGUzXfZDdG-fUCsPQVICJVxtxaPwqU2Zl5VhXidJYmm7Cuv7jRQA1g",
+      "title": "Federal Funds Rate History 1990 to 2026",
+      "snippet": "Oct 28, 2026 — Fed Rate Changes 2024-2026: Still Taming Inflation . The Federal Reserve maintained its target range of 3.75% to 4.00% after the FOMC's ... Read more",
+      "displayed_link": "https://www.forbes.com › Advisor › Investing",
+      "source": "Forbes"
+    }
+  ]
+}

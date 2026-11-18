@@ -19,7 +19,7 @@ from typing import Any
 
 import aio_scraper as a
 from serpapi_client import fetch_search, sanitize
-from search_export import export_records, normalize_response
+from search_export import capture_status_for_aio, export_records, normalize_response
 
 def _type(value: Any) -> str:
     if value is None:
@@ -161,7 +161,7 @@ def compare_main_body(left: dict, right: dict) -> dict:
     """Compare only scoped AIO/organic content, not service metadata or modules."""
     def payload(response, provider):
         record = normalize_response(response, provider=provider, snapshot_id="comparison")
-        if record['aio_status'] in ('invalid', 'error', 'unresolved', 'empty'):
+        if capture_status_for_aio(record['aio_status']) != 'ok':
             raise ValueError(f"{provider} content is not comparable: {record['aio_status']}")
         core = {"organic_results": record["organic_results"]}
         if record["ai_overview"] is not None:
@@ -184,11 +184,7 @@ def _validate_alignment(left: dict, right: dict) -> None:
 
 def _status(response: dict) -> str:
     status = normalize_response(response, provider='custom', snapshot_id='status')['aio_status']
-    if status in ('invalid', 'error'):
-        return 'error'
-    if status in ('unresolved', 'empty'):
-        return 'unresolved'
-    return 'ok'
+    return capture_status_for_aio(status)
 
 
 def _write_json(path: Path, value: Any, *, replace: bool = False) -> None:
@@ -246,6 +242,65 @@ def _failure(query: str, hl: str, gl: str, message: str) -> dict:
             'error': {'code': 'CAPTURE_ERROR', 'message': message}}
 
 
+async def _capture_source(source, query, scraper, args, api_key):
+    """One provider's effects and timing; failure never prevents the other call."""
+    started_at, start = _now(), time.perf_counter()
+    try:
+        if source == 'scraper':
+            response = await scraper.search(query, args.hl, args.gl)
+            if not isinstance(response, dict) or not response:
+                raise ValueError('Scraper returned an invalid response object')
+            status, error, evidence = _status(response), response.get('error'), {}
+        else:
+            capture = await asyncio.to_thread(fetch_search, query, api_key=api_key,
+                hl=args.hl, gl=args.gl, timeout=args.api_timeout)
+            status, error, evidence = capture['status'], capture.get('error'), capture['evidence']
+            response = capture['response']
+            if response is None:
+                original = evidence.get('initial_response')
+                response = (original if isinstance(original, dict) else
+                            _failure(query, args.hl, args.gl, error or 'Request failed'))
+        outcome = {'status': status, 'error': error, 'evidence': evidence}
+    except Exception as exc:
+        error = sanitize(str(exc), _secrets())
+        response = _failure(query, args.hl, args.gl, error)
+        outcome = {'status': 'error', 'error': error, 'evidence': {}}
+    outcome['timing'] = {'started_at': started_at, 'finished_at': _now(),
+                         'elapsed_seconds': round(time.perf_counter() - start, 6)}
+    return response, outcome
+
+
+def _pair_records(responses, sources, *, query_id, run_index, snapshot_id, paths, secrets):
+    """Pure native-to-shared boundary; preserve provider outcome and provenance.
+
+    A usable organic result can coexist with an unresolved AIO. Keep its
+    content/evidence, but do not allow a failed capture to become clean absence.
+    """
+    records = []
+    for source, provider in (('scraper', 'custom'), ('serpapi', 'serpapi')):
+        record = normalize_response(responses[source], provider=provider, query_id=query_id,
+            snapshot_id=snapshot_id, source_file=str(paths[source]),
+            captured_at=sources[source]['timing']['started_at'])
+        record['provenance']['run_index'] = run_index
+        record['capture_status'] = sources[source]['status']
+        if sources[source]['status'] != 'ok':
+            record['aio_status'] = 'unresolved' if sources[source]['status'] == 'unresolved' else 'error'
+            record['error'] = sources[source]['error']
+        records.append(sanitize(record, secrets))
+    return records
+
+
+def _try_compare(responses: dict, sources: dict) -> dict | None:
+    """Compare ok-status pairs; an alignment or shape failure flags serpapi as error."""
+    try:
+        _validate_alignment(responses['scraper'], responses['serpapi'])
+        return compare_main_body(responses['scraper'], responses['serpapi'])
+    except (ValueError, RecursionError) as exc:
+        sources['serpapi']['status'] = 'error'
+        sources['serpapi']['error'] = sanitize(str(exc), _secrets())
+        return None
+
+
 async def _capture(queries: list[str], args, paths: dict[str, Path], api_key: str) -> int:
     batch = bool(args.queries) or args.runs > 1
     left, right = {}, {}
@@ -274,58 +329,27 @@ async def _capture(queries: list[str], args, paths: dict[str, Path], api_key: st
 
     save()
     try:
-        async with a.GoogleAIOScraper(engine=args.browser, proxy_mode=args.proxy, timeout_ms=args.timeout) as scraper:
+        async with a.GoogleAIOScraper(engine=args.browser, proxy_mode=args.proxy,
+                                      timeout_ms=args.timeout) as scraper:
             for index, query in enumerate(queries, 1):
                 sources = {}
                 responses = {}
                 for source in ('scraper', 'serpapi'):
-                    started_at, start = _now(), time.perf_counter()
-                    try:
-                        if source == 'scraper':
-                            response = await scraper.search(query, args.hl, args.gl)
-                            if not isinstance(response, dict) or not response:
-                                raise ValueError('Scraper returned an invalid response object')
-                            status, error, evidence = _status(response), response.get('error'), {}
-                        else:
-                            capture = await asyncio.to_thread(fetch_search, query, api_key=api_key,
-                                hl=args.hl, gl=args.gl, timeout=args.api_timeout)
-                            status, error, evidence = capture['status'], capture.get('error'), capture['evidence']
-                            response = capture['response']
-                            if response is None:
-                                original = evidence.get('initial_response')
-                                response = (original if isinstance(original, dict) else
-                                            _failure(query, args.hl, args.gl, error or 'Request failed'))
-                        sources[source] = {'status': status, 'error': error, 'evidence': evidence}
-                    except Exception as exc:
-                        error = sanitize(str(exc), _secrets())
-                        response = _failure(query, args.hl, args.gl, error)
-                        sources[source] = {'status': 'error', 'error': error, 'evidence': {}}
-                    sources[source]['timing'] = {'started_at': started_at, 'finished_at': _now(),
-                                                'elapsed_seconds': round(time.perf_counter() - start, 6)}
-                    responses[source] = response
+                    responses[source], sources[source] = await _capture_source(
+                        source, query, scraper, args, api_key,
+                    )
                 comparison = None
                 if all(source['status'] == 'ok' for source in sources.values()):
-                    try:
-                        _validate_alignment(responses['scraper'], responses['serpapi'])
-                        comparison = compare_main_body(responses['scraper'], responses['serpapi'])
-                    except (ValueError, RecursionError) as exc:
-                        sources['serpapi']['status'] = 'error'
-                        sources['serpapi']['error'] = sanitize(str(exc), _secrets())
+                    comparison = _try_compare(responses, sources)
                 query_id = f'P{(index - 1) % args.query_count + 1:02d}'
                 run_index = (index - 1) // args.query_count + 1
                 key = f'{query_id}_run{run_index}' if args.runs > 1 else query_id
                 pair = {'query': query, 'query_id': query_id, 'run_index': run_index,
                         'hl': args.hl, 'gl': args.gl, 'sources': sources, 'comparison': comparison}
-                for source, provider in (('scraper', 'custom'), ('serpapi', 'serpapi')):
-                    record = normalize_response(responses[source], provider=provider, query_id=query_id,
-                        snapshot_id=f'{Path(args.out_prefix).name}:{key}',
-                        source_file=str(paths[source]), captured_at=sources[source]['timing']['started_at'])
-                    record['provenance']['run_index'] = run_index
-                    record['capture_status'] = sources[source]['status']
-                    if sources[source]['status'] != 'ok':
-                        record['aio_status'] = 'unresolved' if sources[source]['status'] == 'unresolved' else 'error'
-                        record['error'] = sources[source]['error']
-                    records.append(sanitize(record, _secrets()))
+                records.extend(_pair_records(
+                    responses, sources, query_id=query_id, run_index=run_index,
+                    snapshot_id=f'{Path(args.out_prefix).name}:{key}', paths=paths, secrets=_secrets(),
+                ))
                 if batch:
                     left[key], right[key] = responses['scraper'], responses['serpapi']
                     report['queries'][key] = pair
@@ -372,13 +396,16 @@ def main(argv=None) -> int:
     try:
         offline = bool(args.scraper_json or args.serpapi_json)
         if offline:
-            if not args.scraper_json or not args.serpapi_json or args.query or args.queries or args.runs != 1:
+            if (not args.scraper_json or not args.serpapi_json or args.query
+                    or args.queries or args.runs != 1):
                 raise ValueError('Offline mode requires both JSON files and no query inputs')
             left, right = _read_object(args.scraper_json), _read_object(args.serpapi_json)
             _validate_alignment(left, right)
             statuses = {'scraper': _status(left), 'serpapi': _status(right)}
+            comparison = (compare_main_body(left, right)
+                          if all(s == 'ok' for s in statuses.values()) else None)
             report = {'schema_version': 1, 'mode': 'offline', 'scope': 'main-body', 'statuses': statuses,
-                      'comparison': compare_main_body(left, right) if all(s == 'ok' for s in statuses.values()) else None,
+                      'comparison': comparison,
                       'note': 'Observed JSON gaps, not proof of scraper defects. Scalar wording is ignored.'}
             paths = _paths(args.out_prefix, offline=True)
             records = [normalize_response(value, provider=provider, snapshot_id=Path(args.out_prefix).name,

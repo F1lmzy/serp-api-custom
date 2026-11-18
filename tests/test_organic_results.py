@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import aio_scraper
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -111,3 +113,151 @@ class NavigationDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
                                                timeout_ms=15000)
         with self.assertRaisesRegex(aio_scraper.ScrapeError, "navigation.*15000ms.*GOOGLE_AIO_BROWSER=firefox"):
             await scraper._search_once(Page(), "https://www.google.com/search?q=test", "test", "en", "us")
+
+
+GOTO_ORGANIC_HTML = '''<div id="search"><div id="rso">
+  <div class="MjjYud"><a href="/goto?url=CAESfirst&amp;source=web">
+    <h3>First result</h3></a><div class="VwiC3b">First snippet.</div></div>
+  <div class="MjjYud"><a href="https://second.example/"><h3>Second result</h3></a></div>
+  <div class="MjjYud"><a href="https://www.google.com/goto?url=CAESthird">
+    <h3>Third result</h3></a></div>
+  <div class="MjjYud"><a href="/search?q=related"><h3>Related search</h3></a></div>
+</div></div>'''
+
+FIRST_GOTO = "https://www.google.com/goto?url=CAESfirst&source=web"
+THIRD_GOTO = "https://www.google.com/goto?url=CAESthird"
+
+
+class _RedirectResponse:
+    """Minimal APIResponse stand-in: a status plus a Location header."""
+
+    def __init__(self, status, location=None):
+        self.status = status
+        self.headers = {"location": location} if location else {}
+
+
+class _RedirectRequestContext:
+    """One recorded request per link, replaying canned per-link outcomes."""
+
+    def __init__(self, outcomes):
+        self.outcomes = dict(outcomes)
+        self.requests = []
+
+    async def get(self, url, **kwargs):
+        self.requests.append((url, kwargs))
+        outcome = self.outcomes[url]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def _resolution_page(request_context, url="https://www.google.com/search?q=q"):
+    page = SimpleNamespace(url=url)
+    page.context = SimpleNamespace(request=request_context)
+    return page
+
+
+class OrganicRedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_resolved_goto_links_keep_order_and_originals(self):
+        result = aio_scraper.parse_search_html(GOTO_ORGANIC_HTML, "q", "en", "us")
+        context = _RedirectRequestContext({
+            FIRST_GOTO: _RedirectResponse(302, "https://first.example/article?from=google"),
+            THIRD_GOTO: _RedirectResponse(301, "https://third.example/page")})
+        await aio_scraper._resolve_redirect_links(result, _resolution_page(context))
+        organic = result["organic_results"]
+        self.assertEqual([item["position"] for item in organic], [1, 2, 3])
+        self.assertEqual(organic[0]["snippet"], "First snippet.")
+        self.assertEqual(organic[0]["link"], "https://first.example/article?from=google")
+        self.assertEqual(organic[0]["redirect_link"], FIRST_GOTO)
+        self.assertEqual(organic[1]["link"], "https://second.example/")
+        self.assertNotIn("redirect_link", organic[1])
+        self.assertEqual(organic[2]["link"], "https://third.example/page")
+        self.assertEqual(organic[2]["redirect_link"], THIRD_GOTO)
+        self.assertEqual(result["extraction_metadata"]["redirect_resolution"],
+                         {"attempted": 2, "resolved": 2})
+
+    async def test_sitelinks_resolve_with_the_same_observed_map(self):
+        html = '''<div id="search"><div id="rso">
+          <div class="MjjYud"><a href="/goto?url=CAESmain"><h3>Main result</h3></a>
+            <div class="VwiC3b">Main snippet.</div>
+            <div class="sitelinks"><a href="/goto?url=CAESsub">Sub page</a></div>
+          </div>
+        </div></div>'''
+        result = aio_scraper.parse_search_html(html, "q", "en", "us")
+        context = _RedirectRequestContext({
+            "https://www.google.com/goto?url=CAESmain": _RedirectResponse(302, "https://main.example/page"),
+            "https://www.google.com/goto?url=CAESsub": _RedirectResponse(302, "https://main.example/sub")})
+        await aio_scraper._resolve_redirect_links(result, _resolution_page(context))
+        item = result["organic_results"][0]
+        self.assertEqual(item["link"], "https://main.example/page")
+        sitelink = item["sitelinks"]["inline"][0]
+        self.assertEqual(sitelink["title"], "Sub page")
+        self.assertEqual(sitelink["link"], "https://main.example/sub")
+        self.assertEqual(sitelink["redirect_link"], "https://www.google.com/goto?url=CAESsub")
+
+    async def test_unresolved_organic_links_stay_opaque_and_counted(self):
+        result = aio_scraper.parse_search_html(GOTO_ORGANIC_HTML, "q", "en", "us")
+        context = _RedirectRequestContext({
+            FIRST_GOTO: _RedirectResponse(200),
+            THIRD_GOTO: TimeoutError("no answer")})
+        await aio_scraper._resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
+        self.assertEqual(len(context.requests), 4)  # exactly two observations per link
+        organic = result["organic_results"]
+        self.assertEqual(organic[0]["link"], FIRST_GOTO)
+        self.assertNotIn("redirect_link", organic[0])
+        self.assertEqual(organic[2]["link"], THIRD_GOTO)
+        self.assertNotIn("redirect_link", organic[2])
+        self.assertEqual(result["extraction_metadata"]["redirect_resolution"],
+                         {"attempted": 2, "resolved": 0})
+
+    async def test_settle_retry_resolves_organic_links_after_the_interstitial_window(self):
+        result = aio_scraper.parse_search_html(GOTO_ORGANIC_HTML, "q", "en", "us")
+        outcomes = {FIRST_GOTO: _RedirectResponse(200), THIRD_GOTO: _RedirectResponse(200)}
+        destinations = {FIRST_GOTO: "https://first.example/article?from=google",
+                        THIRD_GOTO: "https://third.example/page"}
+        seen = {}
+
+        class FlippingContext(_RedirectRequestContext):
+            async def get(self, url, **kwargs):
+                await super().get(url, **kwargs)
+                seen[url] = seen.get(url, 0) + 1
+                if seen[url] == 1:
+                    return outcomes[url]
+                return _RedirectResponse(302, destinations[url])
+
+        context = FlippingContext(outcomes)
+        await aio_scraper._resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
+        self.assertEqual(len(context.requests), 4)
+        organic = result["organic_results"]
+        self.assertEqual(organic[0]["link"], "https://first.example/article?from=google")
+        self.assertEqual(organic[0]["redirect_link"], FIRST_GOTO)
+        self.assertEqual(organic[2]["link"], "https://third.example/page")
+        self.assertEqual(result["extraction_metadata"]["redirect_resolution"],
+                         {"attempted": 2, "resolved": 2})
+
+
+class SearchResolutionWiringTests(unittest.IsolatedAsyncioTestCase):
+    async def test_search_resolves_redirects_once_after_the_final_attempt(self):
+        scraper = aio_scraper.GoogleAIOScraper(engine="chromium",
+                                               proxy={"server": "http://proxy.example:823"}, timeout_ms=1000)
+        unresolved = {"search_parameters": {"engine": "google", "q": "q", "hl": "en", "gl": "us"},
+                      "extraction_metadata": {"aio_status": "absent"}}
+        present = {"search_parameters": {"engine": "google", "q": "q", "hl": "en", "gl": "us"},
+                   "extraction_metadata": {"aio_status": "present", "organic_count": 0},
+                   "ai_overview": {"text_blocks": [{"type": "paragraph", "snippet": "Answer"}],
+                                   "references": []}}
+        attempts = [aio_scraper._SearchAttempt(unresolved, True), aio_scraper._SearchAttempt(present, True)]
+
+        async def fake_attempt(page, url, query, hl, gl, poll_ms=20000):
+            return attempts.pop(0)
+
+        resolved = []
+
+        async def fake_resolve(response, page):
+            resolved.append(response)
+
+        scraper._search_attempt = fake_attempt
+        with patch.object(aio_scraper, "_resolve_redirect_links", fake_resolve):
+            result = await scraper.search("q")
+        self.assertIs(result, present)
+        self.assertEqual(resolved, [present])

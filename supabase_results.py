@@ -36,9 +36,11 @@ _SECRET_PATTERNS = (
 )
 _COUNT_KEYS = ("queries", "ai_overviews", "ai_references", "organic_results")
 STATUSES = {'present', 'absent', 'unavailable', 'empty', 'unresolved', 'invalid', 'error'}
-BLOCK_KEYS = {'type', 'snippet', 'list', 'items', 'table', 'detailed', 'reference_indexes', 'snippet_links', 'text', 'link', 'colspan', 'rowspan', 'ordered', 'start', 'is_header'}
+# redirect_link retains the observed Google redirect URL after in-session
+# destination resolution; it is provenance, never a substitute for link.
+BLOCK_KEYS = {'type', 'snippet', 'list', 'items', 'table', 'detailed', 'reference_indexes', 'snippet_links', 'text', 'link', 'redirect_link', 'colspan', 'rowspan', 'ordered', 'start', 'is_header'}
 IGNORED = MEDIA_KEYS | DROP_SECTIONS | {'formatted', 'snippet_highlighted_words'}
-SUPPORT_KEYS = {'inline', 'expanded', 'title', 'link', 'snippet', 'top', 'bottom', 'extensions', 'detected_extensions', 'attributes'}
+SUPPORT_KEYS = {'inline', 'expanded', 'title', 'link', 'redirect_link', 'snippet', 'top', 'bottom', 'extensions', 'detected_extensions', 'attributes'}
 
 
 

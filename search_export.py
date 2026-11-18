@@ -168,7 +168,8 @@ def normalize_response(response: dict, *, provider: str, query_id: str = "P01", 
                 warnings.append(f"unmapped_citation_index:{idx}")
     if refs and not any(True for _ in _all_reference_indexes(blocks)):
         warnings.append("references_without_citation_mappings")
-    if any(_opaque_google_redirect(ref.get("link")) for ref in refs):
+    if (any(_opaque_google_redirect(ref.get("link")) for ref in refs)
+            or any(_opaque_google_redirect(link) for link in _all_snippet_links(blocks))):
         warnings.append("opaque_google_redirect_url")
     organic = google.get("organic_results")
     if not isinstance(organic, list):
@@ -184,7 +185,9 @@ def normalize_response(response: dict, *, provider: str, query_id: str = "P01", 
         scoped = {k: _scoped(v) for k, v in item.items()
                   if k in ORGANIC_KEYS or (isinstance(k, str) and k.lower() not in MEDIA_KEYS | DROP_SECTIONS)}
         organic_results.append(scoped)
-        if _opaque_google_redirect(item.get("link")) or _opaque_google_redirect(item.get("redirect_link")):
+        # The warning marks unresolved primary links; a retained redirect_link
+        # is provenance for an observed destination, not a missing one.
+        if _opaque_google_redirect(item.get("link")):
             warnings.append("opaque_google_redirect_url")
     extra_pages = []
     pages = response.get("google_extra_pages", google.get("google_extra_pages", []))
@@ -227,6 +230,21 @@ def normalize_response(response: dict, *, provider: str, query_id: str = "P01", 
     if extra_pages:
         result["pagination"] = {"merged_pages": True, "extra_pages": extra_pages}
     return sanitize(result)
+
+
+def _all_snippet_links(node: Any):
+    """Every snippet link value at any block nesting depth."""
+    if isinstance(node, dict):
+        links = node.get("snippet_links")
+        if isinstance(links, list):
+            for entry in links:
+                if isinstance(entry, dict):
+                    yield entry.get("link")
+        for value in node.values():
+            yield from _all_snippet_links(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _all_snippet_links(value)
 
 
 def _all_reference_indexes(node: Any):

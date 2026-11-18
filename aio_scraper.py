@@ -515,6 +515,157 @@ def parse_search_html(html: str, query: str, hl: str, gl: str) -> dict:
     return response
 
 
+# --- Opaque redirect destination observation (live session only) ------------
+
+# Google's organic /goto and AI-reference /url links carry server-side tokens,
+# not decodable URLs, and most reference links carry psig/ust click signatures
+# that expire about 24 hours after capture. Destinations are therefore observed
+# once, inside the capture session, by reading Google's own redirect response.
+_REDIRECT_STATUSES = frozenset((301, 302, 303, 307, 308))
+
+
+def _opaque_redirect(link: str) -> bool:
+    """True for Google /url or /goto links whose target is not a decodable URL."""
+    parsed = urlparse(link)
+    if (parsed.hostname or "").lower() not in ("google.com", "www.google.com") or parsed.path not in ("/url", "/goto"):
+        return False
+    params = parse_qs(parsed.query)
+    target = (params.get("url") or params.get("q") or [""])[0]
+    destination = urlparse(unquote(target))
+    return not (destination.scheme in ("http", "https") and destination.hostname)
+
+
+def _walk_content_dicts(response: dict, handle) -> None:
+    """Call handle for every dict inside organic results and AIO content."""
+
+    def visit(node):
+        if isinstance(node, dict):
+            handle(node)
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    visit(response.get("organic_results"))
+    overview = response.get("ai_overview")
+    if isinstance(overview, dict):
+        visit(overview.get("references"))
+        visit(overview.get("text_blocks"))
+
+
+def _collect_opaque_links(response: dict) -> list[str]:
+    """Unique opaque redirect links in first-encounter order."""
+    ordered: dict[str, None] = {}
+
+    def collect(node):
+        link = node.get("link")
+        if isinstance(link, str) and _opaque_redirect(link):
+            ordered.setdefault(link, None)
+
+    _walk_content_dicts(response, collect)
+    return list(ordered)
+
+
+def _apply_redirect_resolutions(response: dict, resolutions: dict[str, str]) -> None:
+    """Store observed destinations, retaining each original as redirect_link."""
+
+    def apply(node):
+        link = node.get("link")
+        if isinstance(link, str) and link in resolutions:
+            node["link"] = resolutions[link]
+            node["redirect_link"] = link
+
+    _walk_content_dicts(response, apply)
+
+
+def _redirect_destination(response) -> str | None:
+    """The observed non-Google HTTP(S) destination of one redirect response."""
+    if response.status not in _REDIRECT_STATUSES:
+        return None
+    location = response.headers.get("location")
+    if not location:
+        return None
+    destination = urljoin(GOOGLE, location.strip())
+    parsed = urlparse(destination)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in ("http", "https") or not host or host == "google.com" or host.endswith(".google.com"):
+        return None
+    return destination
+
+
+async def _observe_redirects(request_context, links: list[str], referer: str, *,
+                             deadline: float, per_link_timeout_ms: int,
+                             concurrency: int) -> dict[str, str]:
+    """Observe Google's redirect response once per link, never following it.
+
+    One bounded request per link; a redirect status with an acceptable
+    Location header supplies the destination, and no destination page content
+    is ever downloaded. Any per-link failure simply leaves that link
+    unresolved. Links past the deadline are left for the caller's retry.
+    """
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+
+    async def observe(link: str) -> tuple[str, str | None]:
+        async with semaphore:
+            if time.monotonic() >= deadline:
+                return link, None
+            try:
+                response = await request_context.get(
+                    link, max_redirects=0, timeout=per_link_timeout_ms, headers={"Referer": referer})
+            except Exception:
+                return link, None
+            return link, _redirect_destination(response)
+
+    observed = await asyncio.gather(*(observe(link) for link in links))
+    return {link: destination for link, destination in observed if destination}
+
+
+async def _resolve_redirect_links(response: dict, page, *, budget_seconds: float = 75.0,
+                                  settle_seconds: float = 45.0,
+                                  per_link_timeout_ms: int = 10000, max_links: int = 50,
+                                  concurrency: int = 4) -> None:
+    """Resolve opaque redirect links by observing Google in the live session.
+
+    Each resolved link becomes its observed non-Google HTTP(S) destination,
+    retaining the original under redirect_link, with at most two observations
+    per link: fresh in-session /goto links answer with an HTML interstitial
+    whose own meta-refresh delay runs about 24-26s, and the identical link
+    observes a clean 3xx once that window passes (28s in one recorded probe,
+    with some links still interstitial near 38s, so the settle covers every
+    window observed so far). One settle retry for still-unresolved links
+    mirrors the pipeline's one lazy follow-up doctrine. Unresolved links stay
+    exactly as parsed and stay flagged by the shared-record warning, so a
+    failed or budget-exhausted resolution never fails the capture itself.
+    `attempted` counts the unique links submitted to this step; `resolved`
+    counts the destinations actually observed.
+    """
+    pending = _collect_opaque_links(response)[:max_links]
+    if not pending:
+        return
+    deadline = time.monotonic() + budget_seconds
+    resolutions: dict[str, str] = {}
+    try:
+        referer = page.url
+        request_context = page.context.request
+        resolutions = await _observe_redirects(
+            request_context, pending, referer, deadline=deadline,
+            per_link_timeout_ms=per_link_timeout_ms, concurrency=concurrency)
+        unresolved = [link for link in pending if link not in resolutions]
+        if unresolved and deadline - time.monotonic() > settle_seconds:
+            await asyncio.sleep(settle_seconds)
+            resolutions.update(await _observe_redirects(
+                request_context, unresolved, referer, deadline=deadline,
+                per_link_timeout_ms=per_link_timeout_ms, concurrency=concurrency))
+    except Exception as exc:
+        print(f"[scrape] redirect resolution unavailable: {type(exc).__name__}: {exc}", file=sys.stderr)
+    _apply_redirect_resolutions(response, resolutions)
+    response.setdefault("extraction_metadata", {})["redirect_resolution"] = {
+        "attempted": len(pending), "resolved": len(resolutions)}
+    print(f"[scrape] redirect resolution: {len(resolutions)}/{len(pending)} opaque links observed",
+          file=sys.stderr)
+
+
 # --- Google CAPTCHA challenge detection -------------------------------------
 
 _CHALLENGE_SELECTORS = (
@@ -998,13 +1149,16 @@ class GoogleAIOScraper:
         return _finish_aio_wait(state)
 
     async def search(self, query: str, hl: str = "en", gl: str = "us") -> dict:
-        """Scrape one query with this session, including organic results."""
+        """Scrape one query with this session, resolving opaque redirects once."""
         page = self.page
         url = f"https://www.google.com/search?q={quote_plus(query)}&hl={quote_plus(hl)}&gl={quote_plus(gl)}"
         attempt = await self._search_attempt(page, url, query, hl, gl)
         if _should_reload_aio(attempt):
             print("[scrape] AIO shell seen but empty; retrying the query once", file=sys.stderr)
             attempt = await self._search_attempt(page, url, query, hl, gl, poll_ms=30000)
+        # After the final attempt only: the discarded reload attempt never
+        # pays for resolution, and its budget never delays the reload decision.
+        await _resolve_redirect_links(attempt.response, page)
         return attempt.response
 
     async def _search_once(self, page, url: str, query: str, hl: str, gl: str, poll_ms: int = 20000) -> dict:

@@ -103,6 +103,32 @@ class SearchExportTests(unittest.TestCase):
         result = normalize_response(value, provider="serpapi", snapshot_id="s")
         self.assertNotIn("opaque_google_redirect_url", result["warnings"])
 
+    def test_redirect_warning_marks_unresolved_primary_links_not_retained_provenance(self):
+        value = self.sample()
+        value["organic_results"][0]["link"] = "https://destination.test/article?x=1"
+        value["organic_results"][0]["redirect_link"] = "https://www.google.com/goto?url=CAESopaque"
+        reference = value["ai_overview"]["ai_overview"]["references"][0]
+        reference["link"] = "https://source.test/article"
+        reference["redirect_link"] = "https://www.google.com/url?sa=i&url=CAESopaque"
+        result = normalize_response(value, provider="custom", snapshot_id="s")
+        self.assertNotIn("opaque_google_redirect_url", result["warnings"])
+        value["organic_results"][0]["link"] = "https://www.google.com/goto?url=CAESopaque"
+        result = normalize_response(value, provider="custom", snapshot_id="s")
+        self.assertIn("opaque_google_redirect_url", result["warnings"])
+        value["organic_results"][0]["link"] = "https://destination.test/article?x=1"
+        reference["link"] = "https://www.google.com/url?sa=i&url=CAESopaque"
+        result = normalize_response(value, provider="custom", snapshot_id="s")
+        self.assertIn("opaque_google_redirect_url", result["warnings"])
+        reference["link"] = "https://source.test/article"
+        block = value["ai_overview"]["ai_overview"]["text_blocks"][0]
+        block["snippet_links"] = [{"text": "source", "link": "https://www.google.com/url?sa=i&url=CAESopaque"}]
+        result = normalize_response(value, provider="custom", snapshot_id="s")
+        self.assertIn("opaque_google_redirect_url", result["warnings"])
+        block["snippet_links"] = [{"text": "source", "link": "https://source.test/article",
+                                   "redirect_link": "https://www.google.com/url?sa=i&url=CAESopaque"}]
+        result = normalize_response(value, provider="custom", snapshot_id="s")
+        self.assertNotIn("opaque_google_redirect_url", result["warnings"])
+
     def test_pagination_metadata_preserves_actual_rank_and_counts(self):
         value = self.sample()
         value["google_extra_pages"] = [{"search_metadata": {"id": "page2"}, "search_parameters": {"start": 10}, "organic_results": [{"position": 11}]}]

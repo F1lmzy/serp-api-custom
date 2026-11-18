@@ -13,6 +13,7 @@ the hosted Worker browse stored results and do not participate in capture state.
 | Browser/session resources (`_pw`, `browser`, `page`, profile/cookies) | `GoogleAIOScraper.__aenter__` / `__aexit__`, one context for the batch | Completion of any individual AIO |
 | AIO observation history (`seen`, last DOM status, answer/citation key, unchanged-since time) | Immutable `_AioWaitState`, local to one `_wait_for_aio_answer` call | A successful extraction; `seen=True` only establishes a container existed |
 | One navigation's response and shell observation | `_SearchAttempt`, returned by `_search_attempt`; `search` owns the one-reload decision | Browser state; `_aio_shell_seen` remains a compatibility mirror, never a decision input |
+| Opaque redirect resolutions (`redirect_link`, `redirect_resolution` counts) | The final attempt's response, mutated once in place by `_resolve_redirect_links` after the reload decision | A property of the live capture session; never applied to saved input or re-derived offline |
 | Capture outcome (`ok`, `unresolved`, `error`) | Native extraction adapter or SerpAPI result; paired `sources` also owns timing/evidence | AIO status or database-write success |
 | Batch progress | `collect_batch`: planned count and ordered results; `_capture`: report, native responses, records and completed/comparable counts | Durable publication of every in-memory result |
 | Persistence outcome | Local save/export return or exception; upload receipt or exception | Capture outcome; an upload failure may mean the server committed |
@@ -60,6 +61,9 @@ and calls this classifier. A visible answer producing no semantic blocks becomes
 | Poll deadline, last sample absent after shell | `seen=True` | `ScrapeError`: disappeared | `_finish_aio_wait`; no automatic reload of exceptions |
 | Poll deadline, last sample still changing answer | Answer key remains set | `ScrapeError`: did not stabilize | `_finish_aio_wait`; no automatic reload of exceptions |
 | Poll deadline, unfinished shell | No stable answer, shell seen | Stop with `True`; native parser retains unresolved status | `_finish_aio_wait` |
+| Final attempt parsed, opaque links present | Cap 50 unique links, 75s budget, 4 concurrent, 10s/link, `max_redirects=0`, at most two observations per link | Each 3xx with a non-Google HTTP(S) `Location` replaces `link` verbatim and keeps the original as `redirect_link`; anything else stays as parsed | `_resolve_redirect_links` after the reload decision; `attempted`/`resolved` recorded in `extraction_metadata.redirect_resolution` |
+| Still-opaque links after the first sweep | Budget can fit one 45s settle | Pause, then re-observe each once (fresh in-session `/goto` links serve a ~24–26s interstitial first, some windows run past 38s); never a third attempt | Second `_observe_redirects` pass inside `_resolve_redirect_links` |
+| Resolution failure of any kind | Never retried beyond the one settle pass | Links stay as parsed; capture/AIO status unchanged | Per-link catches and step-level guard log and keep every link opaque |
 | First attempt returns response | Shell seen AND no `ai_overview` key | One more navigation, then return that attempt's response regardless of outcome | `_should_reload_aio`, `search`; 20s first poll budget, 30s second; no loop |
 | First attempt has overview, or no shell | Guard false | Return response without reload | `search` |
 | Navigation/render/challenge exception | Any attempt | Raise, never reclassify as absence | `_search_attempt`; known failures become native error responses in `_capture_query` |
@@ -116,7 +120,9 @@ that a failed remote request rolled back.
 **Successful query:** follow `collect_batch` → `_capture_query` → `search` →
 `_search_attempt`. `_aio_state` sees an answer; `_advance_aio_wait` waits for two
 seconds of stable blocks/citations. `parse_search_html` returns `present`, so no
-reload. The native response is checkpointed with its positional query ID.
+reload. The session then observes one redirect response per unique opaque link,
+keeping originals as `redirect_link`; unresolved links stay opaque and counted.
+The native response is checkpointed with its positional query ID.
 `_capture_summary` validates the complete envelope; optional `upload_snapshot`
 projects the entire response into one `queries` row and checks its receipt.
 For paired capture, follow `_capture_source` for each provider, the comparison

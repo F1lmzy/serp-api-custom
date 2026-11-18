@@ -154,8 +154,10 @@ Representative `organic_results` entry:
 
 `ordinal` is storage order and is always present; `position` is the
 provider's returned rank and may be missing. `sitelinks` and `rich_snippet`
-are structured sub-objects when present. Original opaque Google redirects are
-kept as-is; destinations are not fetched or guessed.
+are structured sub-objects when present. A live capture may replace opaque
+Google redirect links with destinations observed from Google's own redirect
+responses, retaining the original as `redirect_link`; unresolved links stay
+opaque and their destinations are never guessed or fetched after the fact.
 
 ## Review views
 

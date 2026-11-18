@@ -27,14 +27,18 @@ Two entry formats exist, and both converge on the same stored rows:
   provider and query-occurrence identity rather than merging observations.
 
 `search_export.py` converts native → shared. `supabase_results.py` converts
-either → validated two-table rows. Nothing in the pipeline fetches linked
-pages, resolves redirects, or invents citation mappings.
+either → validated two-table rows. Nothing in the pipeline downloads linked
+pages or invents citation mappings. The only redirect resolution is bounded
+and live-only: a custom capture observes Google's own redirect response for
+each opaque `/url`/`/goto` link once, in the same browser session, and never
+follows it to the destination page. Saved input is never resolved after the
+fact.
 
 ## Module responsibilities
 
 | Module | Owns | Notable boundaries |
 | --- | --- | --- |
-| `aio_scraper.py` | Playwright parser/session, proxy selection, challenge detection and 2Captcha solving | One browser session per batch; at most two token/form attempts, each potentially charged; AIO observation state is attempt-local |
+| `aio_scraper.py` | Playwright parser/session, proxy selection, challenge detection and 2Captcha solving, in-session opaque-redirect destination observation | One browser session per batch; at most two token/form attempts, each potentially charged; AIO observation state is attempt-local; at most two redirect observations per unique opaque link, never followed to destination content |
 | `serpapi_client.py` | Bounded SerpAPI search/lazy-AIO capture and credential redaction | One search request plus at most one lazy follow-up; no pagination, no retries |
 | `compare_serpapi.py` | Paired capture/repeats, per-source timing, checkpoints, AIO/organic structural comparison | Saves files only; never uploads; comparison is structural, not scalar wording |
 | `run_supabase_batch.py` | Custom single-query/batch JSON controller and optional native-snapshot upload | Checkpoints after every query; `--upload-file` never rescrapes; incomplete snapshots fail validation |
@@ -145,6 +149,41 @@ evidence therefore preserves stylesheet-based visibility after style/script
 removal. Parsing excludes hidden subtrees, UI-only copy and source cards from
 answer text.
 
+## Opaque redirect destination observation
+
+Google emits organic `/goto?url=<token>&gsessionid=…` and AI-reference
+`/url?…url=<token>…` links whose destinations are opaque server-side tokens,
+not decodable URLs; the tokens carry no embedded destination, and most
+AI-reference links also carry `psig`/`ust` click signatures that expire roughly
+24 hours after capture. After `search` selects its final attempt (so a
+discarded reload attempt never pays the cost), the session observes Google's
+redirect response for each unique opaque link: one request per link through
+the page's own context, `Referer` set to the results page, redirects never
+followed (`max_redirects=0`), a 10s per-link timeout, at most 50 links and
+a 75s total budget per query, with four concurrent observations. Fresh
+in-session `/goto` links answer with an HTML interstitial whose own
+meta-refresh delay runs about 24–26s, and the identical link observes a
+clean 3xx once that window passes (28s in one recorded probe, with some
+links still interstitial near 38s), so still-opaque links get one bounded
+settle retry — a 45s pause, covering every window observed so far, followed
+by a single re-observation, mirroring the pipeline's one lazy follow-up
+doctrine. At most two observations are ever made per link.
+
+A 3xx response with a non-Google HTTP(S) `Location` replaces the emitted link
+verbatim (query parameters preserved, no canonicalization) and the original
+redirect URL is retained as `redirect_link`. Anything else — an interstitial
+page, an unsafe or Google `Location`, a timeout, budget exhaustion or a
+transport error — leaves the link exactly as parsed, counted in
+`extraction_metadata.redirect_resolution` (`attempted`/`resolved`), and the
+shared record still carries the `opaque_google_redirect_url` warning.
+Resolution never changes capture status or AIO classification; failure only
+leaves links opaque. Organic order and counts, citation indexes and reference
+deduplication are untouched, because the offline parser establishes them
+before any destination is observed. Tokens are session- and time-bound, so
+saved captures are never resolved retroactively: `search_export.py` and
+`supabase_results.py` stay offline, and `redirect_link` is provenance, never a
+substitute for `link`.
+
 ## Fresh paired capture
 
 ```sh
@@ -195,8 +234,12 @@ No text truncation is applied. Credentials, short-lived tokens and URL
 userinfo are redacted in native and common JSON; harmless URLs/query
 parameters and all other content remain unchanged. New substantive AIO
 fields are preserved with warnings in storage, while unsupported block types
-require explicit parser support. Original opaque Google redirects are
-retained; destinations and citation mappings are not guessed or fetched.
+require explicit parser support. Opaque Google redirects are resolved only
+from redirect responses observed in the live capture session; resolved
+records keep the original redirect URL as `redirect_link`, and unresolved
+links stay opaque with their warning. Destinations and citation mappings are
+never guessed, saved input is never resolved, and destination page content is
+never downloaded.
 Unknown locale/time stays unknown. A shell without extracted content is
 unresolved, not proof Google generated no answer.
 
@@ -266,8 +309,10 @@ injection, saved-input equivalence and remaining limitations. The default
 tests use mocked clients and synthetic HTML. Proxy precedence, Chromium proxy
 diagnostics, CAPTCHA context/token handling, ordered full-text extraction,
 sparse/missing citations, secret redaction, JSON-only outputs, repeats,
-collisions, failed export recovery and one-row SQL payloads have regression
-coverage. AIO regressions cover stable loading wrappers, delayed containers,
+collisions, failed export recovery, one-row SQL payloads and opaque-redirect
+destination observation (resolved, rejected, capped, budget-exhausted and
+failing cases, plus warning semantics for retained provenance) have
+regression coverage. AIO regressions cover stable loading wrappers, delayed containers,
 hidden notice templates/ancestors, active generation with partial text,
 visible refusals versus transient errors, disappearing containers and
 bounded reload exhaustion.

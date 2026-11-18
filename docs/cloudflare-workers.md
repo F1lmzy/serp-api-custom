@@ -10,10 +10,9 @@ or spend Google/SerpAPI/proxy/CAPTCHA credits. It uses the existing private
 `queries` and `scrape_runs` schema; no migrations or public database grants are
 added. The Worker, not the browser, holds the Supabase credential.
 
-**Recommended address: `https://archive.srirajkavin.com`.** A subdomain leaves
-any existing personal website and email at the main domain alone. You can use
-`srirajkavin.com` instead, but that replaces the website attached to that
-hostname. Use the same chosen hostname for `APP_HOSTNAME` and the custom domain.
+**Live address: `https://cometlab.srirajkavin.com`.** A subdomain leaves
+any existing personal website and email at the main domain alone. Use the same
+chosen hostname for `APP_HOSTNAME` and the custom domain.
 
 ## What remains protected
 
@@ -49,7 +48,7 @@ this Worker. Preserve existing website, MX/email and verification DNS records,
 then set the assigned nameservers at your registrar. Wait for the zone to become
 **Active**. Domain-registration transfer is not required.
 
-No laptop IP, port forwarding, Tailscale Funnel or tunnel is needed.
+No laptop IP, port forwarding or tunnel is needed.
 
 ## 2. Connect this repository as a Worker (not Pages)
 
@@ -86,7 +85,7 @@ These are **not** build variables/secrets under Settings → Build.
 
 | Name | Type | Value |
 | --- | --- | --- |
-| `APP_HOSTNAME` | Plain text | `archive.srirajkavin.com` (no scheme, port or path) |
+| `APP_HOSTNAME` | Plain text | `cometlab.srirajkavin.com` (no scheme, port or path) |
 | `SUPABASE_PROJECT_ID` | Plain text | Your existing 20-character project reference |
 | `SUPABASE_SECRET_KEY` | **Secret/encrypted** | Your existing server-side Supabase secret/service-role key |
 
@@ -116,7 +115,7 @@ inherited.
 ## 4. Attach the custom domain
 
 1. Open **search-archive → Settings → Domains & Routes → Add → Custom Domain**.
-2. Enter **`archive.srirajkavin.com`** and confirm.
+2. Enter **`cometlab.srirajkavin.com`** and confirm.
 3. Wait for DNS and the HTTPS certificate to become active.
 4. Enable the zone's **Always Use HTTPS** setting if HTTP is not already
    redirected. The Worker itself refuses plaintext HTTP.
@@ -131,12 +130,12 @@ custom domain and `APP_HOSTNAME` aligned.
 
 ## 5. Verify the public deployment
 
-Open `https://archive.srirajkavin.com` in a private browser window:
+Open `https://cometlab.srirajkavin.com` in a private browser window:
 
 - The viewer must open **without any login**.
 - Browse runs and filters, compare captures, open citations and inspect JSON.
 - This unauthenticated request should return run data with status 200:
-  `curl -i https://archive.srirajkavin.com/api/runs`.
+  `curl -i https://cometlab.srirajkavin.com/api/runs`.
 - `workers.dev`, Version URLs and preview addresses remain disabled.
 - JSON replies should have `Cache-Control: private, no-store`; this is a caching
   policy, not a claim that the public data is confidential.
@@ -220,8 +219,7 @@ Wrangler's deployer login is unrelated to visitor authentication.
 `wrangler secret put` publishes a new Worker version. Do not paste secrets into
 shell command arguments, source files or chat.
 
-Your old private tailnet service is independent and can remain as a fallback;
-this does not change it. Future pushes to the connected production branch
+Future pushes to the connected production branch
 trigger Cloudflare builds. Check build results before treating updates as live.
 
 ## Official references

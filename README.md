@@ -11,15 +11,16 @@ Google AIO Scraper is a Python command-line tool for collecting and comparing Go
 - Browse saved responses in a read-only local viewer, or host them as a deliberately public archive on Cloudflare Workers.
 - Use optional DataImpulse proxies, 2Captcha solving and persistent browser sessions.
 
-## Five commands
+## Six commands
 
-`pyproject.toml` installs five console commands. The default environment for all of them is `uv run` from the repository directory.
+`pyproject.toml` installs six console commands. The default environment for all of them is `uv run` from the repository directory.
 
 | Command | What it does | Network use |
 | --- | --- | --- |
 | `google-aio` | Custom browser capture of one query or a batch, optional upload | Google via browser; optional Supabase write |
 | `google-aio-compare` | Paired custom + SerpAPI capture with structural comparison, or offline comparison of a saved pair | Google via browser **and paid SerpAPI**, or none in offline mode |
 | `google-aio-export` | Normalize saved native captures into the shared JSON format | None |
+| `google-aio-resolve` | Resolve opaque Google redirect links (ad-hoc or across a saved capture) by observing Google's redirect responses | Google via browser; never downloads destination pages |
 | `google-aio-sql` | Validate shared records, export SQL, optionally upload | Optional Supabase write |
 | `google-aio-web` | Local read-only viewer for stored responses | Supabase reads only |
 
@@ -66,6 +67,7 @@ The commands below use a macOS/Linux shell. On Windows, use `uv run` the same wa
    uv run google-aio --help
    uv run google-aio-compare --help
    uv run google-aio-export --help
+   uv run google-aio-resolve --help
    uv run google-aio-sql --help
    uv run google-aio-web --help
    ```

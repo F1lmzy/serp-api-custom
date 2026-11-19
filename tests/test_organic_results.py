@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import aio_scraper
+import redirect_resolver
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 
@@ -163,7 +164,7 @@ class OrganicRedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         context = _RedirectRequestContext({
             FIRST_GOTO: _RedirectResponse(302, "https://first.example/article?from=google"),
             THIRD_GOTO: _RedirectResponse(301, "https://third.example/page")})
-        await aio_scraper._resolve_redirect_links(result, _resolution_page(context))
+        await redirect_resolver.resolve_redirect_links(result, _resolution_page(context))
         organic = result["organic_results"]
         self.assertEqual([item["position"] for item in organic], [1, 2, 3])
         self.assertEqual(organic[0]["snippet"], "First snippet.")
@@ -187,7 +188,7 @@ class OrganicRedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         context = _RedirectRequestContext({
             "https://www.google.com/goto?url=CAESmain": _RedirectResponse(302, "https://main.example/page"),
             "https://www.google.com/goto?url=CAESsub": _RedirectResponse(302, "https://main.example/sub")})
-        await aio_scraper._resolve_redirect_links(result, _resolution_page(context))
+        await redirect_resolver.resolve_redirect_links(result, _resolution_page(context))
         item = result["organic_results"][0]
         self.assertEqual(item["link"], "https://main.example/page")
         sitelink = item["sitelinks"]["inline"][0]
@@ -200,7 +201,7 @@ class OrganicRedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         context = _RedirectRequestContext({
             FIRST_GOTO: _RedirectResponse(200),
             THIRD_GOTO: TimeoutError("no answer")})
-        await aio_scraper._resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
+        await redirect_resolver.resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
         self.assertEqual(len(context.requests), 4)  # exactly two observations per link
         organic = result["organic_results"]
         self.assertEqual(organic[0]["link"], FIRST_GOTO)
@@ -226,7 +227,7 @@ class OrganicRedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
                 return _RedirectResponse(302, destinations[url])
 
         context = FlippingContext(outcomes)
-        await aio_scraper._resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
+        await redirect_resolver.resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
         self.assertEqual(len(context.requests), 4)
         organic = result["organic_results"]
         self.assertEqual(organic[0]["link"], "https://first.example/article?from=google")
@@ -257,7 +258,7 @@ class SearchResolutionWiringTests(unittest.IsolatedAsyncioTestCase):
             resolved.append(response)
 
         scraper._search_attempt = fake_attempt
-        with patch.object(aio_scraper, "_resolve_redirect_links", fake_resolve):
+        with patch.object(aio_scraper, "resolve_redirect_links", fake_resolve):
             result = await scraper.search("q")
         self.assertIs(result, present)
         self.assertEqual(resolved, [present])

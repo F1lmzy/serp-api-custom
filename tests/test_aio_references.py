@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 import aio_scraper as a
+import redirect_resolver as rr
 
 
 class ReferenceUrlTests(unittest.TestCase):
@@ -134,7 +135,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         context = _RedirectRequestContext({
             CARD_LINK: _RedirectResponse(302, CARD_DESTINATION),
             INLINE_LINK: _RedirectResponse(301, INLINE_DESTINATION)})
-        await a._resolve_redirect_links(result, _resolution_page(context))
+        await rr.resolve_redirect_links(result, _resolution_page(context))
         references = result["ai_overview"]["references"]
         self.assertEqual(references[0]["link"], CARD_DESTINATION)
         self.assertEqual(references[0]["redirect_link"], CARD_LINK)
@@ -160,7 +161,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(outcome=name):
                 result = self._parsed_overview()
                 context = _RedirectRequestContext({CARD_LINK: outcome, INLINE_LINK: outcome})
-                await a._resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
+                await rr.resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
                 self.assertEqual(len(context.requests), 4)  # exactly two observations per link
                 references = result["ai_overview"]["references"]
                 self.assertEqual(references[0]["link"], CARD_LINK)
@@ -172,7 +173,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         result = self._parsed_overview()
         context = _FlippingRequestContext({CARD_LINK: CARD_DESTINATION,
                                             INLINE_LINK: INLINE_DESTINATION})
-        await a._resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
+        await rr.resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
         self.assertEqual(context.requests, 4)  # interstitial, then the settled observation
         references = result["ai_overview"]["references"]
         self.assertEqual(references[0]["link"], CARD_DESTINATION)
@@ -186,7 +187,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         result = self._parsed_overview()
         context = _FlippingRequestContext({CARD_LINK: CARD_DESTINATION,
                                             INLINE_LINK: INLINE_DESTINATION})
-        await a._resolve_redirect_links(result, _resolution_page(context),
+        await rr.resolve_redirect_links(result, _resolution_page(context),
                                         budget_seconds=0.5, settle_seconds=30.0)
         self.assertEqual(context.requests, 2)  # only the first sweep fit
         self.assertEqual(result["extraction_metadata"]["redirect_resolution"],
@@ -200,7 +201,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
                 context = _RedirectRequestContext({
                     CARD_LINK: _RedirectResponse(302, location),
                     INLINE_LINK: _RedirectResponse(302, location)})
-                await a._resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
+                await rr.resolve_redirect_links(result, _resolution_page(context), settle_seconds=0.0)
                 self.assertEqual(len(context.requests), 4)
                 self.assertEqual(result["ai_overview"]["references"][0]["link"], CARD_LINK)
                 self.assertNotIn("redirect_link", result["ai_overview"]["references"][0])
@@ -214,7 +215,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
                 ("page exposes no request context", SimpleNamespace(url="https://www.google.com/search?q=q"))):
             with self.subTest(failure=name):
                 result = self._parsed_overview()
-                await a._resolve_redirect_links(result, page, settle_seconds=0.0)
+                await rr.resolve_redirect_links(result, page, settle_seconds=0.0)
                 references = result["ai_overview"]["references"]
                 self.assertEqual(references[0]["link"], CARD_LINK)
                 self.assertNotIn("redirect_link", references[0])
@@ -226,7 +227,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         context = _RedirectRequestContext({
             CARD_LINK: _RedirectResponse(302, CARD_DESTINATION),
             INLINE_LINK: _RedirectResponse(302, INLINE_DESTINATION)})
-        await a._resolve_redirect_links(result, _resolution_page(context), max_links=1)
+        await rr.resolve_redirect_links(result, _resolution_page(context), max_links=1)
         self.assertEqual(len(context.requests), 1)
         self.assertEqual(result["ai_overview"]["references"][0]["link"], CARD_DESTINATION)
         self.assertEqual(result["extraction_metadata"]["redirect_resolution"],
@@ -239,7 +240,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         html = OPAQUE_OVERVIEW_HTML.replace("CAESone", "https%3A%2F%2Fplain.example%2Ffact")
         result = a.parse_search_html(html, "a query", "en", "us")
         context = _RedirectRequestContext({})
-        await a._resolve_redirect_links(result, _resolution_page(context))
+        await rr.resolve_redirect_links(result, _resolution_page(context))
         self.assertEqual(context.requests, [])
         self.assertNotIn("redirect_resolution", result["extraction_metadata"])
         references = result["ai_overview"]["references"]
@@ -250,7 +251,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         html = OPAQUE_OVERVIEW_HTML.replace("ved=inline", "ved=test")
         result = a.parse_search_html(html, "a query", "en", "us")
         context = _RedirectRequestContext({CARD_LINK: _RedirectResponse(302, CARD_DESTINATION)})
-        await a._resolve_redirect_links(result, _resolution_page(context))
+        await rr.resolve_redirect_links(result, _resolution_page(context))
         self.assertEqual(len(context.requests), 1)
         references = result["ai_overview"]["references"]
         self.assertEqual(references[0]["link"], CARD_DESTINATION)
@@ -266,7 +267,7 @@ class RedirectResolutionTests(unittest.IsolatedAsyncioTestCase):
         context = _RedirectRequestContext({
             CARD_LINK: _RedirectResponse(302, CARD_DESTINATION),
             INLINE_LINK: _RedirectResponse(301, INLINE_DESTINATION)})
-        await a._resolve_redirect_links(result, _resolution_page(context))
+        await rr.resolve_redirect_links(result, _resolution_page(context))
         from comparison_storage import normalize_native_snapshot
         query = normalize_native_snapshot({
             "run_id": "00000000-0000-0000-0000-000000000002", "captured_at": "2026-01-01T00:00:00Z",

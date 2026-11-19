@@ -38,7 +38,8 @@ fact.
 
 | Module | Owns | Notable boundaries |
 | --- | --- | --- |
-| `aio_scraper.py` | Playwright parser/session, proxy selection, challenge detection and 2Captcha solving, in-session opaque-redirect destination observation | One browser session per batch; at most two token/form attempts, each potentially charged; AIO observation state is attempt-local; at most two redirect observations per unique opaque link, never followed to destination content |
+| `aio_scraper.py` | Playwright parser/session, proxy selection, challenge detection and 2Captcha solving | One browser session per batch; at most two token/form attempts, each potentially charged; AIO observation state is attempt-local |
+| `redirect_resolver.py` | Live opaque-redirect destination observation: one response, a saved capture, or ad-hoc links (`google-aio-resolve`) | At most two observations per unique link, never followed to destination content; checkpointed link→destination caches so interrupted runs resume; saved input is resolved only against a live session, never guessed offline |
 | `serpapi_client.py` | Bounded SerpAPI search/lazy-AIO capture and credential redaction | One search request plus at most one lazy follow-up; no pagination, no retries |
 | `compare_serpapi.py` | Paired capture/repeats, per-source timing, checkpoints, AIO/organic structural comparison | Saves files only; never uploads; comparison is structural, not scalar wording |
 | `run_supabase_batch.py` | Custom single-query/batch JSON controller and optional native-snapshot upload | Checkpoints after every query; `--upload-file` never rescrapes; incomplete snapshots fail validation |
@@ -151,7 +152,11 @@ answer text.
 
 ## Opaque redirect destination observation
 
-Google emits organic `/goto?url=<token>&gsessionid=…` and AI-reference
+`redirect_resolver.py` owns every form of opaque-redirect destination
+observation: the scraper calls it once per final attempt, and
+`google-aio-resolve` exposes the same machinery for saved captures and
+ad-hoc links. Google emits organic `/goto?url=<token>&gsessionid=…` and
+AI-reference
 `/url?…url=<token>…` links whose destinations are opaque server-side tokens,
 not decodable URLs; the tokens carry no embedded destination, and most
 AI-reference links also carry `psig`/`ust` click signatures that expire roughly

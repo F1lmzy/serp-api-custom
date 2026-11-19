@@ -13,6 +13,7 @@ dependencies = ["beautifulsoup4>=4.12,<5", "playwright>=1.45,<2"]
 google-aio = "run_supabase_batch:main"
 google-aio-compare = "compare_serpapi:main"
 google-aio-export = "search_export:main"
+google-aio-resolve = "redirect_resolver:main"
 google-aio-sql = "comparison_storage:main"
 google-aio-web = "aio_viewer.server:main"
 
@@ -21,4 +22,4 @@ aio_viewer = ["static/*.html", "static/*.css", "static/*.js"]
 
 [tool.setuptools]
 packages = ["aio_viewer"]
-py-modules = ["aio_scraper", "supabase_results", "run_supabase_batch", "serpapi_client", "compare_serpapi", "search_export", "comparison_storage", "response_sql"]
+py-modules = ["aio_scraper", "redirect_resolver", "supabase_results", "run_supabase_batch", "serpapi_client", "compare_serpapi", "search_export", "comparison_storage", "response_sql"]

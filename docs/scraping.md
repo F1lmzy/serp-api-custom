@@ -189,6 +189,16 @@ saved captures are never resolved retroactively: `search_export.py` and
 `supabase_results.py` stay offline, and `redirect_link` is provenance, never a
 substitute for `link`.
 
+Batch captures resolve what is immediately observable inline and leave the
+rest opaque by design, because some in-session interstitial windows outlast
+the one settle retry. A post-capture `google-aio-resolve` sweep over the
+finished snapshot (`--settle-seconds 0`, cache-seeded and resumable) recovers
+those links before upload, since every link is past its window by then; on
+the recorded pap-300-direct-resolved run this two-stage flow resolved every
+link. Parallel shard workers — separate profiles, positional merge into one
+run identity — are the operational speed-up for large batches, with each
+shard capturing under identical per-query behavior.
+
 ## Fresh paired capture
 
 ```sh

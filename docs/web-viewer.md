@@ -86,6 +86,14 @@ Query search combines with all active filters using AND. Filters run in Supabase
 pagination; filters persist when switching runs. **Clear all** resets query text
 and every filter. An empty list means no matching rows, not an ingestion error.
 
+## Compare domains within one capture
+
+Open a saved response and select **Domain comparison**. The three groups show
+which domains are shared between AI Overview references and organic results,
+and which appear only on one side. Expand a domain to see its saved links,
+citation indexes and organic ranks side by side. The comparison uses only the
+already loaded response; it makes no new searches or requests to those links.
+
 ## Compare the same query across runs
 
 1. Open a saved response, then choose **Compare runs** in the toolbar below the preview tabs.

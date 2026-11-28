@@ -374,9 +374,12 @@ class HTTPTests(unittest.TestCase):
                 self.assertGreaterEqual(page.locator(selector).first.bounding_box()["height"], 36)
             page.locator("#preview-tab").focus()
             page.keyboard.press("ArrowRight")
+            expect(page.locator("#domains-tab")).to_be_focused()
+            expect(page.locator("#domains-panel")).to_be_visible()
+            page.keyboard.press("ArrowRight")
             expect(page.locator("#json-tab")).to_be_focused()
             expect(page.locator("#json-panel")).to_be_visible()
-            page.keyboard.press("ArrowLeft")
+            page.keyboard.press("ArrowRight")
             expect(page.locator("#preview-tab")).to_be_focused()
             self.assertEqual(page.locator("#preview-tab").evaluate("node => getComputedStyle(node).outlineStyle"), "solid")
             for width in (1024, 768, 390):

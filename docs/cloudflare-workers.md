@@ -133,7 +133,7 @@ custom domain and `APP_HOSTNAME` aligned.
 Open `https://cometlab.srirajkavin.com` in a private browser window:
 
 - The viewer must open **without any login**.
-- Browse runs and filters, compare captures, open citations and inspect JSON.
+- Browse runs and filters, compare captures and domains, open citations and inspect JSON.
 - This unauthenticated request should return run data with status 200:
   `curl -i https://cometlab.srirajkavin.com/api/runs`.
 - `workers.dev`, Version URLs and preview addresses remain disabled.
@@ -166,7 +166,16 @@ The hosted frontend includes archive pagination, query-text search, AIO status
 language/country/device, inclusive UTC capture dates, warning and organic-result
 filters. Filters execute server-side **before** pagination and reset the page.
 
-Open a response and choose **Compare runs**. Matches use exact text + language +
+Open a response and choose **Domain comparison** to compare the saved AI
+Overview references and top-level organic results from that capture. Domains
+are grouped as shared, AI Overview only, or organic only. Expand one to see its
+links, citation indexes, and ranks; positions that weren't saved are labeled as
+saved order, not inferred ranks. Matching ignores a leading `www.` but keeps
+other subdomains separate. Sitelinks are excluded. The viewer uses saved
+redirect destinations or explicit targets in known Google URL wrappers; opaque
+redirects and invalid links are omitted and counted, never fetched.
+
+Choose **Compare runs** to compare separate captures instead. Matches use exact text + language +
 country, not query ID or row position. Device/domain may differ and are shown.
 Multiple target matches require explicit selection, with independent pagination.
 Left-hand archive filters do not hide target responses with different statuses.

@@ -13,10 +13,16 @@ export const BASE = {
     { type: "paragraph", snippet: "A complete saved answer.", reference_indexes: [0, 7] },
     { type: "list", ordered: true, start: 3, list: [{ snippet: "Saved list item" }] },
     { type: "table", detailed: [[{ snippet: "Heading", is_header: true }, { snippet: "Cell" }]] },
-  ], references: [{ index: 0, title: "Saved source", link: "https://example.com/source", source: "Example", snippet: "Full reference text" }] },
+  ], references: [
+    { index: 0, title: "Saved source", link: "https://www.example.com/source", source: "Example", snippet: "Full reference text", redirect_link: "https://www.google.com/goto?url=resolved" },
+    { index: 2, title: "A reference on a subdomain", link: "https://google.com/url?q=https%3A%2F%2Fguides.example.com%2Fpaper" },
+    { index: 3, title: "Opaque redirect", link: "https://www.google.com/goto?url=opaque" },
+    { title: "Source saved a second time", link: "https://www.example.com/source" },
+  ] },
   organic_results: [
     { position: 1, title: "Saved result", link: "https://example.com/result", snippet: "Full saved organic snippet" },
     { position: 3, title: "Unsafe saved link", link: "javascript:window.hacked=true", snippet: "<img src=x onerror=window.hacked=true>" },
+    { title: "Organic-only result", link: "https://organic.example/result", sitelinks: [{ title: "Excluded sitelink", link: "https://sitelink.example/" }] },
   ],
 };
 

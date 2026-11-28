@@ -164,6 +164,28 @@ td p, th p { margin: 0 !important; }
 .sitelink-expanded a, .sitelink-expanded > span { display: block; font-size: 20px; line-height: 26px; }
 .sitelink-expanded p { font-size: 14px; line-height: 22px; color: #4d5156; margin: 3px 0 0; }
 /* Archive inspectors, deliberately outside the reference result surface. */
+#domains-panel { padding: 24px 16px 0; color: var(--archive-ink); }
+#domains-panel h2 { margin: 0 0 8px; font-size: 18px; line-height: 24px; font-weight: 500; }
+.domain-note, .domain-summary { margin: 0 0 16px; color: var(--archive-muted); font-size: 13px; line-height: 20px; }
+.domain-summary:empty { display: none; }
+.domain-group { margin: 0 0 24px; }
+.domain-group h3 { margin: 0 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.domain-group > .muted { margin: 0; }
+.domain-entry { border-top: 1px solid var(--archive-line); overflow-wrap: anywhere; }
+.domain-entry:last-child { border-bottom: 1px solid var(--archive-line); }
+.domain-entry > summary { padding: 12px 8px; font-size: 13px; line-height: 20px; }
+.domain-entry > summary:hover, .domain-entry[open] > summary { background: var(--archive-hover); }
+.domain-host { font-family: var(--archive-mono); font-weight: 600; margin-right: 12px; }
+.domain-counts { display: inline-block; color: var(--archive-muted); font-variant-numeric: tabular-nums; }
+.domain-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 16px 8px; }
+.domain-column h4 { margin: 0 0 8px; font-size: 13px; line-height: 20px; font-weight: 600; }
+.domain-column p { margin: 0; }
+.domain-links { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; font-size: 13px; line-height: 20px; }
+.domain-position, .domain-url { display: block; color: var(--archive-muted); font-size: 12px; line-height: 16px; }
+@media (max-width: 480px) {
+  .tabs { gap: 12px; }
+  .domain-columns { grid-template-columns: minmax(0, 1fr); }
+}
 .json-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 24px 16px 0; }
 .json-toolbar label { margin: 0; }
 .json-toolbar select { font-size: 12px; }

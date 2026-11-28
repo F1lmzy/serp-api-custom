@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const state = { runs: [], run: null, runOffset: 0, offset: 0, search: "", filters: {}, row: null, references: [], listRequest: 0, detailRequest: 0 };
 const PAGE_SIZE = 50;
+const RESPONSE_TABS = ["preview", "domains", "json"];
 const array = (value) => Array.isArray(value) ? value : [];
 const text = (value) => typeof value === "string" || typeof value === "number" ? String(value) : "";
 
@@ -50,13 +51,13 @@ function notice(message, error = false) {
   $("notice").classList.toggle("error", error);
 }
 function switchTab(name) {
-  for (const tab of ["preview", "json"]) {
-    const active = tab === name;
-    $(tab + "-tab").setAttribute("aria-selected", String(active));
-    $(tab + "-tab").tabIndex = active ? 0 : -1;
+  for (const view of RESPONSE_TABS) {
+    const tab = $(view + "-tab");
+    const active = view === name;
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+    $(tab.getAttribute("aria-controls")).hidden = !active;
   }
-  $("preview").hidden = name !== "preview";
-  $("json-panel").hidden = name !== "json";
 }
 function showJSON(scope) {
   $("json-scope").value = scope;
@@ -226,6 +227,106 @@ function organicResult(result, ordinal) {
   if (expanded.childElementCount) article.append(expanded);
   return article;
 }
+function isGoogleRedirect(url) {
+  return ["google.com", "www.google.com"].includes(url.hostname)
+    && ["/url", "/goto"].includes(url.pathname);
+}
+
+function comparisonDestination(value) {
+  if (typeof value !== "string") return null;
+  const href = safeURL(value);
+  if (!href) return null;
+  const url = new URL(href);
+  if (!isGoogleRedirect(url)) return url;
+
+  // Use explicit destinations in legacy wrappers, never follow opaque tokens.
+  const target = safeURL(url.searchParams.get("url")) ?? safeURL(url.searchParams.get("q"));
+  if (!target) return null;
+  const destination = new URL(target);
+  return isGoogleRedirect(destination) ? null : destination;
+}
+
+function indexDomainLinks(entries, domains, side) {
+  const isReference = side === "references";
+  const kind = isReference ? "Citation index" : "Rank";
+  let skipped = 0;
+  for (const [offset, entry] of array(entries).entries()) {
+    const destination = comparisonDestination(entry?.link);
+    if (!destination) {
+      skipped++;
+      continue;
+    }
+    const hostname = destination.hostname.replace(/^www\./, "");
+    if (!domains.has(hostname)) domains.set(hostname, { hostname, references: [], organic: [] });
+    const number = isReference ? entry.index : entry.position;
+    const position = Number.isInteger(number) ? `${kind} ${number}` : `Saved order ${offset + 1}`;
+    domains.get(hostname)[side].push({ title: entry.title, href: destination.href, position });
+  }
+  return skipped;
+}
+
+function domainLinkList(heading, entries) {
+  const column = element("div", "domain-column");
+  column.append(element("h4", "", heading));
+  if (!entries.length) {
+    column.append(element("p", "muted", "No links from this domain"));
+    return column;
+  }
+  const list = element("ul", "domain-links");
+  for (const { title, href, position } of entries) {
+    const item = element("li");
+    item.append(element("span", "domain-position", position));
+    item.append(link(title || href, href));
+    if (title && title !== href) item.append(element("span", "domain-url", href));
+    list.append(item);
+  }
+  column.append(list);
+  return column;
+}
+
+function domainEntry({ hostname, references, organic }) {
+  const details = element("details", "domain-entry");
+  const summary = element("summary");
+  summary.append(element("span", "domain-host", hostname));
+  const counts = `${references.length} AIO · ${organic.length} organic`;
+  summary.append(element("span", "domain-counts", counts));
+  const columns = element("div", "domain-columns");
+  columns.append(domainLinkList("AI Overview references", references));
+  columns.append(domainLinkList("Organic results", organic));
+  details.append(summary, columns);
+  return details;
+}
+
+function renderDomains(row) {
+  const domains = new Map();
+  const skippedAio = indexDomainLinks(row.aio_response?.references, domains, "references");
+  const skippedOrganic = indexDomainLinks(row.organic_results, domains, "organic");
+  const shared = [], referenceOnly = [], organicOnly = [];
+  const sorted = [...domains.values()].sort((left, right) => left.hostname.localeCompare(right.hostname));
+  for (const entry of sorted) {
+    if (!entry.references.length) organicOnly.push(entry);
+    else if (!entry.organic.length) referenceOnly.push(entry);
+    else shared.push(entry);
+  }
+
+  const notes = [];
+  if (row.aio_status === "absent") notes.push("No AI Overview was returned for this capture.");
+  if (skippedAio || skippedOrganic) {
+    notes.push(`Links without a usable destination: ${skippedAio} AI Overview, ${skippedOrganic} organic.`);
+  }
+  $("domain-summary").textContent = notes.join(" ");
+  const container = $("domain-groups");
+  container.replaceChildren();
+  const groups = [["Shared domains", shared], ["AI Overview only", referenceOnly], ["Organic only", organicOnly]];
+  for (const [label, entries] of groups) {
+    const group = element("section", "domain-group");
+    group.append(element("h3", "", `${label} · ${entries.length}`));
+    for (const entry of entries) group.append(domainEntry(entry));
+    if (!entries.length) group.append(element("p", "muted", "No domains in this group"));
+    container.append(group);
+  }
+}
+
 function renderResponse(row) {
   closeComparison(false);
   state.row = row;
@@ -274,6 +375,7 @@ function renderResponse(row) {
   results.forEach((result, index) => { if (result) $("organic-results").append(organicResult(result, index)); });
   if (!results.length) $("organic-results").append(element("p", "muted", "No organic results were saved for this response."));
   $("organic-title").textContent = `Search results · ${results.length}`;
+  renderDomains(row);
   $("json-scope").value = "response";
   renderJSON();
   switchTab("preview");
@@ -558,16 +660,24 @@ $("prev").addEventListener("click", () => { state.offset = Math.max(0, state.off
 $("next").addEventListener("click", () => { state.offset += PAGE_SIZE; loadQueries(); });
 $("runs-prev").addEventListener("click", () => { state.runOffset = Math.max(0, state.runOffset - PAGE_SIZE); loadRuns(); });
 $("runs-next").addEventListener("click", () => { state.runOffset += PAGE_SIZE; loadRuns(); });
-$("preview-tab").addEventListener("click", () => switchTab("preview"));
-$("json-tab").addEventListener("click", () => switchTab("json"));
-for (const id of ["preview-tab", "json-tab"]) $(id).addEventListener("keydown", (event) => {
-  if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+for (const [index, name] of RESPONSE_TABS.entries()) {
+  const tab = $(name + "-tab");
+  tab.addEventListener("click", () => switchTab(name));
+  tab.addEventListener("keydown", (event) => {
+    const count = RESPONSE_TABS.length;
+    const targets = {
+      ArrowLeft: (index + count - 1) % count,
+      ArrowRight: (index + 1) % count,
+      Home: 0,
+      End: count - 1,
+    };
+    if (!Object.hasOwn(targets, event.key)) return;
     event.preventDefault();
-    const target = event.key === "Home" ? "preview" : event.key === "End" ? "json" : id === "preview-tab" ? "json" : "preview";
+    const target = RESPONSE_TABS[targets[event.key]];
     switchTab(target);
     $(target + "-tab").focus();
-  }
-});
+  });
+}
 $("aio-json").addEventListener("click", () => showJSON("aio_response"));
 $("organic-json").addEventListener("click", () => showJSON("organic_results"));
 $("json-scope").addEventListener("change", renderJSON);

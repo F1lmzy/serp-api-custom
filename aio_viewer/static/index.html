@@ -49,7 +49,11 @@
       <div id="welcome" class="welcome"><h1>Inspect a saved search</h1><p>Select a response from the archive to read its AI Overview, trace citations, and inspect organic results</p><span class="muted">Saved data only · No new searches or API credits</span></div>
       <article id="response" hidden>
         <header class="response-header"><div class="eyebrow">Saved search response</div><h1 id="query-title"></h1><div id="metadata" class="metadata"></div></header>
-        <div class="tabs" role="tablist" aria-label="Response view"><button id="preview-tab" role="tab" aria-selected="true" aria-controls="preview">Search preview</button><button id="json-tab" role="tab" aria-selected="false" aria-controls="json-panel" tabindex="-1">Raw JSON</button></div>
+        <div class="tabs" role="tablist" aria-label="Response view">
+          <button id="preview-tab" role="tab" aria-selected="true" aria-controls="preview">Search preview</button>
+          <button id="domains-tab" role="tab" aria-selected="false" aria-controls="domains-panel" tabindex="-1">Domain comparison</button>
+          <button id="json-tab" role="tab" aria-selected="false" aria-controls="json-panel" tabindex="-1">Raw JSON</button>
+        </div>
         <section id="preview" role="tabpanel" aria-labelledby="preview-tab">
           <div class="preview-toolbar"><p class="archive-note">Saved reconstruction · not a live Google page</p><div class="preview-actions"><button id="compare-open" class="text-button">Compare runs</button><button id="aio-json" class="text-button">AIO JSON</button><button id="organic-json" class="text-button">Results JSON</button></div></div>
           <div id="aio-state" class="capture-diagnostics" role="status"></div>
@@ -57,6 +61,13 @@
             <section class="aio" aria-labelledby="aio-title"><div class="section-heading"><h2 id="aio-title"><span class="sparkle" aria-hidden="true">✦</span>AI Overview</h2><button id="mobile-sources" class="mobile-sources" type="button" aria-haspopup="dialog">Sources</button></div><div class="aio-layout"><div id="aio-content" class="aio-content"></div><aside id="sources" aria-label="AI Overview sources"></aside></div></section>
             <section class="organic" aria-labelledby="organic-title"><h2 id="organic-title" class="visually-hidden">Search results</h2><div id="organic-results"></div></section>
           </div>
+        </section>
+        <section id="domains-panel" role="tabpanel" aria-labelledby="domains-tab" tabindex="0" hidden>
+          <h2>AI Overview vs. organic results</h2>
+          <p class="domain-note">Compare AI Overview references with top-level organic results from this capture. Expand a domain to see its links, citation indexes, and saved ranks.</p>
+          <p id="domain-summary" class="domain-summary"></p>
+          <div id="domain-groups"></div>
+          <p class="domain-note">Matches use the URL hostname, ignoring a leading <code>www.</code>; other subdomains stay separate. Sitelinks are not counted.</p>
         </section>
         <section id="json-panel" role="tabpanel" aria-labelledby="json-tab" hidden><div class="json-toolbar"><label for="json-scope">JSON entry</label><select id="json-scope"><option value="response">Complete response row</option><option value="aio_response">aio_response</option><option value="organic_results">organic_results</option></select><button id="copy-json">Copy JSON</button></div><pre id="json-content" tabindex="0"></pre><p id="copy-status" role="status" class="muted"></p></section>
       </article>
